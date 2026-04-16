@@ -1,0 +1,325 @@
+{% extends "base.html" %}
+{% block title %}编辑 Sync2Pod 任务 — {{ task.name }}{% endblock %}
+{% block nav_sync2pod %}active{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="d-flex align-items-center mb-4">
+      <a href="{% url 'sync2pod_detail' task.id %}" class="btn btn-outline-secondary btn-sm me-3">
+        <i class="bi bi-arrow-left"></i>
+      </a>
+      <h4 class="mb-0">编辑任务：{{ task.name }}</h4>
+    </div>
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+
+        {% if form.non_field_errors %}
+        <div class="alert alert-danger small">
+          {% for e in form.non_field_errors %}<div>{{ e }}</div>{% endfor %}
+        </div>
+        {% endif %}
+
+        <form method="post" novalidate>
+          {% csrf_token %}
+
+          {# ── 任务名称 ── #}
+          {% with field=form.name %}
+          <div class="mb-3">
+            <label for="{{ field.id_for_label }}" class="form-label fw-semibold">
+              {{ field.label }}<span class="text-danger ms-1">*</span>
+            </label>
+            <input type="text" id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                   class="form-control {% if field.errors %}is-invalid{% endif %}"
+                   value="{{ field.value|default_if_none:'' }}"
+                   placeholder="{{ field.field.widget.attrs.placeholder }}">
+            <div class="form-text text-muted">{{ field.help_text }}</div>
+            {% for e in field.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+          </div>
+          {% endwith %}
+
+          {# ── Tess 环境（最先确认，影响 kubeconfig 上下文来源） ── #}
+          {% with field=form.is_tess %}
+          <div class="mb-3 p-3 rounded" style="background:#fff8e1;border:1px solid #ffe082">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox"
+                     id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                     {% if field.value %}checked{% endif %}>
+              <label class="form-check-label fw-semibold" for="{{ field.id_for_label }}">
+                <i class="bi bi-shield-lock me-1 text-warning"></i>{{ field.label }}
+              </label>
+            </div>
+            <div class="form-text text-muted ms-4 mt-1">
+              使用 <code>tess kubectl</code> 代替 <code>kubectl</code>（Tess 环境必选）
+            </div>
+          </div>
+          {% endwith %}
+          {% with field=form.pod_type %}
+          <div class="mb-3">
+            <label class="form-label fw-semibold">{{ field.label }}<span class="text-danger ms-1">*</span></label>
+            <div class="d-flex gap-3">
+              {% for val, label in field.field.choices %}
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="{{ field.html_name }}"
+                       id="pod_type_{{ val }}" value="{{ val }}"
+                       {% if field.value == val or not field.value and val == 'k8s' %}checked{% endif %}>
+                <label class="form-check-label" for="pod_type_{{ val }}">{{ label }}</label>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endwith %}
+
+          {# ── 本地源目录 ── #}
+          {% with field=form.source_dir %}
+          <div class="mb-3">
+            <label for="{{ field.id_for_label }}" class="form-label fw-semibold">
+              {{ field.label }}<span class="text-danger ms-1">*</span>
+            </label>
+            <input type="text" id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                   class="form-control {% if field.errors %}is-invalid{% endif %}"
+                   value="{{ field.value|default_if_none:'' }}"
+                   placeholder="{{ field.field.widget.attrs.placeholder }}">
+            {% for e in field.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+          </div>
+          {% endwith %}
+
+          {# ── K8s 参数区块 ── #}
+          <div id="k8s-section">
+            <hr class="my-3">
+            <p class="text-muted small mb-3"><i class="bi bi-cloud me-1"></i>Kubernetes 参数</p>
+
+            {# ── 当前 kubeconfig 上下文提示 ── #}
+            <div id="kube-ctx-bar" class="mb-3">
+            {% if kube_ctx %}
+            <div class="alert alert-secondary small py-2 d-flex align-items-center gap-2 flex-wrap">
+              <i class="bi bi-box-arrow-in-right text-secondary"></i>
+              <span id="ctx-label">当前上下文：<strong>{{ kube_ctx.context }}</strong>{% if kube_ctx.is_tess %} <span class="badge bg-warning text-dark ms-1" style="font-size:.65rem">tess kubectl</span>{% endif %}</span>
+              <span class="text-muted">|</span>
+              <span>集群：<code id="ctx-cluster">{{ kube_ctx.cluster }}</code>
+                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 ms-1"
+                        style="font-size:.7rem" id="btn-use-cluster">使用</button>
+              </span>
+              <span class="text-muted">|</span>
+              <span>命名空间：<code id="ctx-namespace">{{ kube_ctx.namespace }}</code>
+                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 ms-1"
+                        style="font-size:.7rem" id="btn-use-ns">使用</button>
+              </span>
+            </div>
+            {% else %}
+            <div class="alert alert-warning small py-2">
+              <i class="bi bi-exclamation-triangle me-1"></i>
+              <span id="ctx-unavail">kubectl 不可用或未配置，无法读取当前上下文</span>
+            </div>
+            {% endif %}
+            </div>
+
+            <div class="alert alert-info small mb-3">
+              <i class="bi bi-info-circle me-1"></i>
+              启动时执行一次全量 <code>kubectl cp</code> 初始化，之后持续监控本地变更并自动同步。
+              同步为单向：<strong>本地 → Pod</strong>，不修改本地文件。
+            </div>
+
+          {# 逐字段渲染 #}
+            {% with field=form.cluster %}
+            <div class="mb-3">
+              <label for="{{ field.id_for_label }}" class="form-label fw-semibold">{{ field.label }}</label>
+              <input type="text" id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                     class="form-control {% if field.errors %}is-invalid{% endif %}"
+                     value="{{ field.value|default_if_none:'' }}"
+                     placeholder="{{ field.field.widget.attrs.placeholder }}">
+              <div class="form-text text-muted">{{ field.help_text }}</div>
+            </div>
+            {% endwith %}
+
+            {% with field=form.namespace %}
+            <div class="mb-3">
+              <label for="{{ field.id_for_label }}" class="form-label fw-semibold">
+                {{ field.label }}<span class="text-danger ms-1">*</span>
+              </label>
+              <input type="text" id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                     class="form-control {% if field.errors %}is-invalid{% endif %}"
+                     value="{{ field.value|default_if_none:'default' }}"
+                     placeholder="{{ field.field.widget.attrs.placeholder }}">
+              <div class="form-text text-muted">{{ field.help_text }}</div>
+            </div>
+            {% endwith %}
+
+            {% with field=form.pod_label %}
+            <div class="mb-3">
+              <label for="{{ field.id_for_label }}" class="form-label fw-semibold">
+                {{ field.label }}
+                <span class="badge bg-primary ms-1" style="font-size:.65rem;vertical-align:middle">优先</span>
+              </label>
+              <input type="text" id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                     class="form-control {% if field.errors %}is-invalid{% endif %}"
+                     value="{{ field.value|default_if_none:'' }}"
+                     placeholder="{{ field.field.widget.attrs.placeholder }}">
+              <div class="form-text text-muted">{{ field.help_text }}</div>
+              {% for e in field.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+            </div>
+            {% endwith %}
+
+            {% with field=form.pod %}
+            <div class="mb-3">
+              <label for="{{ field.id_for_label }}" class="form-label fw-semibold">{{ field.label }}</label>
+              <input type="text" id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                     class="form-control {% if field.errors %}is-invalid{% endif %}"
+                     value="{{ field.value|default_if_none:'' }}"
+                     placeholder="{{ field.field.widget.attrs.placeholder }}">
+              <div class="form-text text-muted">{{ field.help_text }}</div>
+              {% for e in field.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+            </div>
+            {% endwith %}
+
+            {% with field=form.container %}
+            <div class="mb-3">
+              <label for="{{ field.id_for_label }}" class="form-label fw-semibold">{{ field.label }}</label>
+              <input type="text" id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                     class="form-control" value="{{ field.value|default_if_none:'' }}"
+                     placeholder="{{ field.field.widget.attrs.placeholder }}">
+              <div class="form-text text-muted">{{ field.help_text }}</div>
+            </div>
+            {% endwith %}
+
+            {% with field=form.pod_dir %}
+            <div class="mb-3">
+              <label for="{{ field.id_for_label }}" class="form-label fw-semibold">
+                {{ field.label }}<span class="text-danger ms-1">*</span>
+              </label>
+              <input type="text" id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                     class="form-control {% if field.errors %}is-invalid{% endif %}"
+                     value="{{ field.value|default_if_none:'' }}"
+                     placeholder="{{ field.field.widget.attrs.placeholder }}">
+              <div class="form-text text-muted">{{ field.help_text }}</div>
+              {% for e in field.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+            </div>
+            {% endwith %}
+
+          </div>{# /k8s-section #}
+
+          {# ── Docker 占位 ── #}
+          <div id="docker-section" style="display:none">
+            <hr class="my-3">
+            <div class="alert alert-warning small">
+              <i class="bi bi-cone-striped me-1"></i>
+              Docker 容器同步功能正在开发中，敬请期待。
+            </div>
+          </div>
+
+          {# ── 异常停止告警 ── #}
+          {% with field=form.enable_alert %}
+          <hr class="my-3">
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox"
+                     id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                     {% if field.value %}checked{% endif %}>
+              <label class="form-check-label fw-semibold" for="{{ field.id_for_label }}">
+                <i class="bi bi-bell me-1"></i>{{ field.label }}
+              </label>
+            </div>
+            <div class="form-text text-muted ms-4">{{ field.field.help_text }}</div>
+          </div>
+          {% endwith %}
+
+          {# ── 轮询间隔（通用） ── #}
+          {% with field=form.interval %}
+          <hr class="my-3">
+          <div class="mb-3">
+            <label for="{{ field.id_for_label }}" class="form-label fw-semibold">
+              {{ field.label }}<span class="text-danger ms-1">*</span>
+            </label>
+            <input type="number" id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                   class="form-control {% if field.errors %}is-invalid{% endif %}"
+                   value="{{ field.value|default_if_none:'3' }}">
+            <div class="form-text text-muted">{{ field.help_text }}</div>
+          </div>
+          {% endwith %}
+
+          <div class="d-flex justify-content-end gap-2 mt-4">
+            <a href="{% url 'sync2pod_detail' task.id %}" class="btn btn-outline-secondary">取消</a>
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>保存配置</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const KUBE_CTX_URL = "{% url 'sync2pod_kube_context' %}";
+const clusterInput   = document.getElementById('{{ form.cluster.id_for_label }}');
+const namespaceInput = document.getElementById('{{ form.namespace.id_for_label }}');
+const tessCb         = document.getElementById('{{ form.is_tess.id_for_label }}');
+
+// ── Pod 类型切换 ───────────────────────────────────────
+function updateSections() {
+  const type = document.querySelector('input[name="pod_type"]:checked')?.value;
+  document.getElementById('k8s-section').style.display    = type === 'k8s'    ? '' : 'none';
+  document.getElementById('docker-section').style.display = type === 'docker' ? '' : 'none';
+}
+document.querySelectorAll('input[name="pod_type"]').forEach(r => r.addEventListener('change', updateSections));
+updateSections();
+
+// ── kubeconfig 上下文刷新 ──────────────────────────────
+const ctxBar = document.getElementById('kube-ctx-bar');
+
+function renderCtxBar(ctx) {
+  if (!ctx || ctx.error) {
+    const msg = ctx?.error || 'kubectl 不可用或未配置';
+    ctxBar.innerHTML = `<div class="alert alert-warning small py-2">
+      <i class="bi bi-exclamation-triangle me-1"></i>${msg}</div>`;
+    return;
+  }
+  const tessBadge = ctx.is_tess
+    ? ' <span class="badge bg-warning text-dark ms-1" style="font-size:.65rem">tess kubectl</span>'
+    : '';
+  ctxBar.innerHTML = `
+  <div class="alert alert-secondary small py-2 d-flex align-items-center gap-2 flex-wrap">
+    <i class="bi bi-box-arrow-in-right text-secondary"></i>
+    <span>当前上下文：<strong>${ctx.context}</strong>${tessBadge}</span>
+    <span class="text-muted">|</span>
+    <span>集群：<code id="ctx-cluster">${ctx.cluster}</code>
+      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 ms-1"
+              style="font-size:.7rem" id="btn-use-cluster">使用</button>
+    </span>
+    <span class="text-muted">|</span>
+    <span>命名空间：<code id="ctx-namespace">${ctx.namespace}</code>
+      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 ms-1"
+              style="font-size:.7rem" id="btn-use-ns">使用</button>
+    </span>
+  </div>`;
+  // re-bind buttons after innerHTML replace
+  document.getElementById('btn-use-cluster')?.addEventListener('click', () => {
+    clusterInput.value = document.getElementById('ctx-cluster').textContent;
+  });
+  document.getElementById('btn-use-ns')?.addEventListener('click', () => {
+    namespaceInput.value = document.getElementById('ctx-namespace').textContent;
+  });
+}
+
+async function refreshCtx() {
+  const tess = tessCb?.checked ? '1' : '0';
+  try {
+    const data = await fetch(`${KUBE_CTX_URL}?tess=${tess}`).then(r => r.json());
+    renderCtxBar(data);
+  } catch (e) {
+    renderCtxBar(null);
+  }
+}
+
+// Initial bind for server-rendered buttons
+document.getElementById('btn-use-cluster')?.addEventListener('click', () => {
+  clusterInput.value = document.getElementById('ctx-cluster').textContent;
+});
+document.getElementById('btn-use-ns')?.addEventListener('click', () => {
+  namespaceInput.value = document.getElementById('ctx-namespace').textContent;
+});
+
+// Refresh context when tess checkbox changes
+tessCb?.addEventListener('change', refreshCtx);
+</script>
+{% endblock %}

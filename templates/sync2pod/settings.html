@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Sync2Pod 全局设置{% endblock %}
+{% block nav_sync2pod %}active{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="d-flex align-items-center mb-3 gap-2">
+      <a href="{% url 'sync2pod_list' %}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i>
+      </a>
+      <h5 class="mb-0"><i class="bi bi-gear me-2"></i>全局设置</h5>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <form method="post">
+          {% csrf_token %}
+
+          {# ── Tess 环境全局开关 ── #}
+          {% with field=form.is_tess %}
+          <div class="mb-3 p-3 rounded" style="background:#fffbe6;border:1px solid #ffe58f">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox"
+                     id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                     {% if field.value %}checked{% endif %}>
+              <label class="form-check-label fw-semibold" for="{{ field.id_for_label }}">
+                <i class="bi bi-shield-lock me-1"></i>{{ field.label }}
+              </label>
+            </div>
+            <div class="form-text text-muted ms-4">{{ field.field.help_text }}</div>
+          </div>
+          {% endwith %}
+
+          {# ── 列表页日志开关 ── #}
+          {% with field=form.show_list_log %}
+          <div class="mb-3 p-3 rounded" style="background:#f0f9ff;border:1px solid #bae6fd">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox"
+                     id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                     {% if field.value %}checked{% endif %}>
+              <label class="form-check-label fw-semibold" for="{{ field.id_for_label }}">
+                <i class="bi bi-terminal me-1"></i>{{ field.label }}
+              </label>
+            </div>
+            <div class="form-text text-muted ms-4">{{ field.field.help_text }}</div>
+          </div>
+          {% endwith %}
+
+          {# ── 邮件告警 SMTP ── #}
+          <hr class="my-4">
+          <p class="fw-semibold mb-3"><i class="bi bi-envelope me-1"></i>邮件告警（任务意外停止时通知）</p>
+
+          {% with field=form.alert_email %}
+          <div class="mb-3">
+            <label for="{{ field.id_for_label }}" class="form-label fw-semibold">{{ field.label }}</label>
+            <input type="email" id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                   class="form-control" value="{{ field.value|default_if_none:'' }}"
+                   placeholder="alert@example.com">
+            <div class="form-text text-muted">{{ field.field.help_text }}</div>
+          </div>
+          {% endwith %}
+
+          <div class="row g-2 mb-3">
+            {% with field=form.smtp_host %}
+            <div class="col-8">
+              <label for="{{ field.id_for_label }}" class="form-label fw-semibold">{{ field.label }}</label>
+              <input type="text" id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                     class="form-control" value="{{ field.value|default_if_none:'' }}"
+                     placeholder="{{ field.field.help_text }}">
+            </div>
+            {% endwith %}
+            {% with field=form.smtp_port %}
+            <div class="col-4">
+              <label for="{{ field.id_for_label }}" class="form-label fw-semibold">{{ field.label }}</label>
+              <input type="number" id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                     class="form-control" value="{{ field.value|default_if_none:'587' }}">
+              <div class="form-text text-muted">{{ field.field.help_text }}</div>
+            </div>
+            {% endwith %}
+          </div>
+
+          {% with field=form.smtp_user %}
+          <div class="mb-3">
+            <label for="{{ field.id_for_label }}" class="form-label fw-semibold">{{ field.label }}</label>
+            <input type="text" id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                   class="form-control" value="{{ field.value|default_if_none:'' }}"
+                   placeholder="user@example.com（同时作为发件人地址）"
+                   autocomplete="new-password">
+          </div>
+          {% endwith %}
+
+          {% with field=form.smtp_password %}
+          <div class="mb-3">
+            <label for="{{ field.id_for_label }}" class="form-label fw-semibold">{{ field.label }}</label>
+            <input type="password" id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                   class="form-control" value="{{ field.value|default_if_none:'' }}"
+                   autocomplete="new-password" placeholder="留空保持不变">
+          </div>
+          {% endwith %}
+
+          {% with field=form.smtp_use_tls %}
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox"
+                     id="{{ field.id_for_label }}" name="{{ field.html_name }}"
+                     {% if field.value %}checked{% endif %}>
+              <label class="form-check-label fw-semibold" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            </div>
+          </div>
+          {% endwith %}
+
+          {# ── 当前 kubeconfig 上下文预览 ── #}
+          {% if kube_ctx %}
+          <div class="alert alert-secondary small py-2 mb-3 d-flex align-items-center gap-2 flex-wrap">
+            <i class="bi bi-box-arrow-in-right text-secondary"></i>
+            <span>当前上下文：<strong>{{ kube_ctx.context }}</strong>
+              {% if kube_ctx.is_tess %}
+              <span class="badge bg-warning text-dark ms-1" style="font-size:.65rem">tess kubectl</span>
+              {% endif %}
+            </span>
+            <span class="text-muted">|</span>
+            <span>集群：<code>{{ kube_ctx.cluster }}</code></span>
+            <span class="text-muted">|</span>
+            <span>命名空间：<code>{{ kube_ctx.namespace }}</code></span>
+          </div>
+          {% endif %}
+
+          <div class="d-flex justify-content-end gap-2 mt-4">
+            <a href="{% url 'sync2pod_list' %}" class="btn btn-outline-secondary">取消</a>
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-check-lg me-1"></i>保存设置
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

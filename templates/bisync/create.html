@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}新建 Bisync 任务{% endblock %}
+{% block nav_bisync %}active{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="d-flex align-items-center mb-4">
+      <a href="{% url 'bisync_list' %}" class="btn btn-outline-secondary btn-sm me-3">
+        <i class="bi bi-arrow-left"></i>
+      </a>
+      <h4 class="mb-0">新建 Bisync 任务</h4>
+    </div>
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <div class="alert alert-info small mb-4">
+          <i class="bi bi-info-circle me-1"></i>
+          创建任务后，在任务详情页添加一个或多个目标目录，每个目标目录独立运行同步进程。
+        </div>
+        <form method="post" novalidate>
+          {% csrf_token %}
+          {% for field in form %}
+          <div class="mb-3">
+            <label for="{{ field.id_for_label }}" class="form-label fw-semibold">
+              {{ field.label }}{% if field.field.required %}<span class="text-danger ms-1">*</span>{% endif %}
+            </label>
+            <input
+              type="{{ field.field.widget.input_type }}"
+              id="{{ field.id_for_label }}"
+              name="{{ field.html_name }}"
+              class="form-control {% if field.errors %}is-invalid{% endif %}"
+              value="{{ field.value|default_if_none:'' }}"
+              {% if field.field.widget.attrs.placeholder %}placeholder="{{ field.field.widget.attrs.placeholder }}"{% endif %}
+            >
+            {% if field.help_text %}<div class="form-text text-muted">{{ field.help_text }}</div>{% endif %}
+            {% for error in field.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+          </div>
+          {% endfor %}
+          <div class="d-flex justify-content-end gap-2 mt-4">
+            <a href="{% url 'bisync_list' %}" class="btn btn-outline-secondary">取消</a>
+            <button type="submit" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>创建任务</button>
+          </div>
+        </form>
+{% endblock %}

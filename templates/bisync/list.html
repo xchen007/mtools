@@ -1,0 +1,333 @@
+{% extends "base.html" %}
+{% block title %}Bisync 任务{% endblock %}
+{% block nav_bisync %}active{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-arrow-left-right me-2"></i>Bisync 双向同步任务</h4>
+  <a href="{% url 'bisync_create' %}" class="btn btn-primary btn-sm">
+    <i class="bi bi-plus-lg me-1"></i>新建任务
+  </a>
+</div>
+
+{# ── 日志控制栏 ── #}
+<div class="d-flex align-items-center gap-3 mb-3 px-1">
+  <div class="form-check form-switch mb-0">
+    <input class="form-check-input" type="checkbox" id="logToggle" role="switch">
+    <label class="form-check-label small" for="logToggle">显示日志</label>
+  </div>
+  <div class="d-flex align-items-center gap-1" id="lineCountWrap" style="display:none!important">
+    <label class="small text-muted mb-0" for="lineCount">行数</label>
+    <select id="lineCount" class="form-select form-select-sm" style="width:70px">
+      <option value="2">2</option>
+      <option value="5">5</option>
+      <option value="10">10</option>
+      <option value="20">20</option>
+    </select>
+  </div>
+</div>
+
+{% if tasks %}
+  {% for task in tasks %}
+  <div class="card shadow-sm mb-3">
+    {# ── 卡片标题：source dir 只出现一次 ── #}
+    <div class="card-header py-2">
+      <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+        <a href="{% url 'bisync_detail' task.id %}" class="fw-semibold text-decoration-none">{{ task.name }}</a>
+        <span class="badge bg-light text-secondary border text-nowrap">间隔 {{ task.interval }}s</span>
+        <span class="badge bg-light text-secondary border text-nowrap">防抖 {{ task.debounce_seconds }}s</span>
+        {% if task.exclude_patterns_list %}
+        <span class="badge bg-light text-secondary border text-nowrap" title="{{ task.exclude_patterns }}">
+          <i class="bi bi-funnel me-1"></i>{{ task.exclude_patterns_list|length }} 排除
+        </span>
+        {% endif %}
+        <div class="ms-auto d-flex gap-2 align-items-center flex-wrap">
+          <form method="post" action="{% url 'bisync_start_all' task.id %}">{% csrf_token %}
+            <button class="btn btn-success btn-sm text-nowrap"><i class="bi bi-play-fill me-1"></i>全部启动</button>
+          </form>
+          <form method="post" action="{% url 'bisync_stop_all' task.id %}">{% csrf_token %}
+            <button class="btn btn-warning btn-sm text-nowrap"><i class="bi bi-stop-fill me-1"></i>全部停止</button>
+          </form>
+          <form method="post" action="{% url 'bisync_add_target' task.id %}"
+                class="d-flex gap-2 align-items-center">
+            {% csrf_token %}
+            <input type="text" name="target_dir" class="form-control form-control-sm"
+                   placeholder="添加目标目录…" style="width:260px">
+            <button type="submit" class="btn btn-outline-primary btn-sm text-nowrap">
+              <i class="bi bi-plus-lg me-1"></i>添加
+            </button>
+          </form>
+          <form method="post" action="{% url 'bisync_delete_task' task.id %}"
+                onsubmit="return confirm('删除任务「{{ task.name }}」及所有目标？')">
+            {% csrf_token %}
+            <button class="btn btn-outline-danger btn-sm py-0 px-1" title="删除任务"><i class="bi bi-trash3"></i></button>
+          </form>
+        </div>
+      </div>
+      <div class="small text-muted d-flex gap-3 flex-wrap">
+        <span><span class="fw-semibold me-1">源目录:</span><a href="{% url 'bisync_open_path' %}?path={{ task.source_dir|urlencode }}"
+           class="font-monospace text-decoration-none">{{ task.source_dir }}</a></span>
+        <span class="text-secondary"><i class="bi bi-clock me-1"></i>创建于 {{ task.created_at|date:"Y-m-d H:i" }}</span>
+      </div>
+    </div>
+
+    {# ── 目标目录列表 ── #}
+    {% with targets=task.targets.all %}
+    {% if targets %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0 small">
+        <tbody>
+          {% for target in targets %}
+          <tr>
+            <td class="text-center px-2 sync-arrow" data-target-id="{{ target.id }}" style="width:46px">
+              {% if target.status == 'running' %}
+              <svg width="36" height="14" viewBox="0 0 56 20" xmlns="http://www.w3.org/2000/svg">
+                <line x1="4" y1="10" x2="52" y2="10" stroke="#0d6efd" stroke-width="1.5" opacity="0.35"/>
+                <line x1="4" y1="10" x2="52" y2="10" stroke="#198754" stroke-width="1.5" opacity="0.35"/>
+                <polyline points="44,5 52,10 44,15" fill="none" stroke="#0d6efd" stroke-width="1.5" opacity="0.7"/>
+                <polyline points="12,5 4,10 12,15"  fill="none" stroke="#198754" stroke-width="1.5" opacity="0.7"/>
+                <circle cy="10" r="3.2" fill="#0d6efd">
+                  <animate attributeName="cx" from="7" to="49" dur="1.3s" repeatCount="indefinite"/>
+                  <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.07;0.93;1" dur="1.3s" repeatCount="indefinite"/>
+                </circle>
+                <circle cy="10" r="3.2" fill="#198754">
+                  <animate attributeName="cx" from="49" to="7" dur="1.3s" begin="0.65s" repeatCount="indefinite"/>
+                  <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.07;0.93;1" dur="1.3s" begin="0.65s" repeatCount="indefinite"/>
+                </circle>
+              </svg>
+              {% else %}
+              <svg width="36" height="14" viewBox="0 0 56 20" xmlns="http://www.w3.org/2000/svg">
+                <line x1="4" y1="10" x2="52" y2="10" stroke="#adb5bd" stroke-width="1.5"/>
+                <polyline points="44,5 52,10 44,15" fill="none" stroke="#adb5bd" stroke-width="1.5"/>
+                <polyline points="12,5 4,10 12,15"  fill="none" stroke="#adb5bd" stroke-width="1.5"/>
+              </svg>
+              {% endif %}
+            </td>
+            <td style="min-width:0; overflow:hidden">
+              <span class="badge bg-secondary me-1" style="font-size:.65rem">目标</span>
+              <a href="{% url 'bisync_open_path' %}?path={{ target.target_dir|urlencode }}"
+                 class="font-monospace small text-decoration-none"
+                 style="word-break:break-all;white-space:normal"
+                 title="{{ target.target_dir }}">{{ target.target_dir }}</a>
+            </td>
+            <td style="width:90px">
+              <span class="status-badge" data-target-id="{{ target.id }}">
+              {% if target.status == 'running' %}
+                <span class="badge bg-success"><i class="bi bi-circle-fill me-1" style="font-size:.55rem"></i>运行中</span>
+              {% elif target.status == 'error' %}
+                <span class="badge bg-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>错误</span>
+              {% else %}
+                <span class="badge bg-secondary"><i class="bi bi-stop-fill me-1"></i>已停止</span>
+              {% endif %}
+              </span>
+            </td>
+            <td class="text-muted" style="width:65px">
+              PID <span class="pid-val" data-target-id="{{ target.id }}">{{ target.pid|default:"—" }}</span>
+            </td>
+            <td class="text-muted text-nowrap" style="width:100px;font-size:.7rem">
+              <i class="bi bi-file-text me-1"></i><span class="log-mtime-val"
+                data-target-id="{{ target.id }}"
+                data-ts="{% if target.log_mtime %}{{ target.log_mtime.timestamp }}{% endif %}">
+                {% if target.log_mtime %}{{ target.log_mtime|timesince }} 前{% else %}—{% endif %}
+              </span>
+            </td>
+            <td class="text-end pe-2" style="width:210px">
+              <div class="d-flex justify-content-end gap-1 action-btns" data-target-id="{{ target.id }}">
+                {% if target.status == 'running' %}
+                  <form method="post" action="{% url 'target_stop' target.id %}">{% csrf_token %}
+                    <button class="btn btn-warning btn-sm"><i class="bi bi-stop-fill"></i> 停止</button>
+                  </form>
+                {% else %}
+                  <form method="post" action="{% url 'target_start' target.id %}">{% csrf_token %}
+                    <button class="btn btn-success btn-sm"><i class="bi bi-play-fill"></i> 启动</button>
+                  </form>
+                {% endif %}
+                <a href="{% url 'target_log_page' target.id %}" class="btn btn-outline-secondary btn-sm" title="日志"><i class="bi bi-journal-text"></i></a>
+                <form method="post" action="{% url 'target_reset' target.id %}"
+                      onsubmit="return confirm('重置将删除 target_dir 并重新复制，确认？')">{% csrf_token %}
+                  <button class="btn btn-outline-info btn-sm" title="重置"><i class="bi bi-arrow-counterclockwise"></i></button>
+                </form>
+                <form method="post" action="{% url 'target_delete' target.id %}"
+                      onsubmit="return confirm('删除此同步目标？')">{% csrf_token %}
+                  <button class="btn btn-outline-danger btn-sm" title="删除"><i class="bi bi-trash3"></i></button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {# ── mini log strip ── #}
+          <tr class="log-strip-row" data-target-id="{{ target.id }}" style="display:none">
+            <td colspan="7" class="p-0">
+              <pre class="log-strip mb-0" data-target-id="{{ target.id }}"
+                   style="background:#1e1e1e;color:#d4d4d4;font-size:.7rem;line-height:1.4;
+                          margin:0;padding:3px 10px;min-height:2.4em;white-space:pre-wrap;
+                          word-break:break-all;border-top:1px solid #333">{{ target.log_tail|default:"" }}</pre>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {% endwith %}
+  </div>
+  {% endfor %}
+
+{% else %}
+<div class="text-center py-5 text-muted">
+  <i class="bi bi-inbox display-4 d-block mb-3"></i>
+  <p>还没有任务，<a href="{% url 'bisync_create' %}">点击新建</a></p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if tasks %}
+<script>
+const BASE_STATUS_URL = "{% url 'bisync_status_all' %}";
+
+const ARROW_RUNNING = `<svg width="36" height="14" viewBox="0 0 56 20" xmlns="http://www.w3.org/2000/svg">
+  <line x1="4" y1="10" x2="52" y2="10" stroke="#0d6efd" stroke-width="1.5" opacity="0.35"/>
+  <line x1="4" y1="10" x2="52" y2="10" stroke="#198754" stroke-width="1.5" opacity="0.35"/>
+  <polyline points="44,5 52,10 44,15" fill="none" stroke="#0d6efd" stroke-width="1.5" opacity="0.7"/>
+  <polyline points="12,5 4,10 12,15"  fill="none" stroke="#198754" stroke-width="1.5" opacity="0.7"/>
+  <circle cy="10" r="3.2" fill="#0d6efd">
+    <animate attributeName="cx" from="7" to="49" dur="1.3s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.07;0.93;1" dur="1.3s" repeatCount="indefinite"/>
+  </circle>
+  <circle cy="10" r="3.2" fill="#198754">
+    <animate attributeName="cx" from="49" to="7" dur="1.3s" begin="0.65s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.07;0.93;1" dur="1.3s" begin="0.65s" repeatCount="indefinite"/>
+  </circle>
+</svg>`;
+const ARROW_STOPPED = `<svg width="36" height="14" viewBox="0 0 56 20" xmlns="http://www.w3.org/2000/svg">
+  <line x1="4" y1="10" x2="52" y2="10" stroke="#adb5bd" stroke-width="1.5"/>
+  <polyline points="44,5 52,10 44,15" fill="none" stroke="#adb5bd" stroke-width="1.5"/>
+  <polyline points="12,5 4,10 12,15"  fill="none" stroke="#adb5bd" stroke-width="1.5"/>
+</svg>`;
+
+const BADGE = {
+  running: '<span class="badge bg-success"><i class="bi bi-circle-fill me-1" style="font-size:.55rem"></i>运行中</span>',
+  error:   '<span class="badge bg-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>错误</span>',
+  stopped: '<span class="badge bg-secondary"><i class="bi bi-stop-fill me-1"></i>已停止</span>',
+};
+
+const STOP_BTN  = (id, token) => `<form method="post" action="/bisync/target/${id}/stop/">
+  <input type="hidden" name="csrfmiddlewaretoken" value="${token}">
+  <button class="btn btn-warning btn-sm"><i class="bi bi-stop-fill"></i> 停止</button></form>`;
+const START_BTN = (id, token) => `<form method="post" action="/bisync/target/${id}/start/">
+  <input type="hidden" name="csrfmiddlewaretoken" value="${token}">
+  <button class="btn btn-success btn-sm"><i class="bi bi-play-fill"></i> 启动</button></form>`;
+
+function getCsrf() {
+  return document.cookie.split(';').map(c => c.trim())
+    .find(c => c.startsWith('csrftoken='))?.split('=')[1] ?? '';
+}
+
+// ── relative time helper ─────────────────────────────────
+function relativeTime(ts) {
+  if (!ts) return '—';
+  const diffSec = Math.floor((Date.now() / 1000) - ts);
+  if (diffSec < 5)   return '刚刚';
+  if (diffSec < 60)  return `${diffSec}秒前`;
+  if (diffSec < 3600) return `${Math.floor(diffSec/60)}分钟前`;
+  if (diffSec < 86400) return `${Math.floor(diffSec/3600)}小时前`;
+  return `${Math.floor(diffSec/86400)}天前`;
+}
+
+// refresh all mtime labels every 10s locally (no network needed)
+setInterval(() => {
+  document.querySelectorAll('.log-mtime-val[data-ts]').forEach(el => {
+    const ts = parseFloat(el.dataset.ts);
+    if (ts) el.textContent = relativeTime(ts);
+  });
+}, 10000);
+
+// ── log toggle & line count ──────────────────────────────
+const logToggle    = document.getElementById('logToggle');
+const lineCountSel = document.getElementById('lineCount');
+const lineCountWrap = document.getElementById('lineCountWrap');
+
+function getLogLines() { return parseInt(lineCountSel.value, 10) || 2; }
+function getLogVisible() { return logToggle.checked; }
+
+function applyLogVisibility() {
+  const show = getLogVisible();
+  document.querySelectorAll('.log-strip-row').forEach(r => {
+    r.style.display = show ? '' : 'none';
+  });
+  lineCountWrap.style.display = show ? '' : 'none';
+}
+
+// restore from localStorage
+(function () {
+  const savedShow  = localStorage.getItem('bisync_log_show');
+  const savedLines = localStorage.getItem('bisync_log_lines');
+  if (savedShow === 'true') logToggle.checked = true;
+  if (savedLines) lineCountSel.value = savedLines;
+  applyLogVisibility();
+})();
+
+logToggle.addEventListener('change', () => {
+  localStorage.setItem('bisync_log_show', logToggle.checked);
+  applyLogVisibility();
+});
+lineCountSel.addEventListener('change', () => {
+  localStorage.setItem('bisync_log_lines', lineCountSel.value);
+});
+
+// ── status polling ───────────────────────────────────────
+const lastStatus = {};
+
+async function pollStatus() {
+  try {
+    const lines = getLogLines();
+    const url   = `${BASE_STATUS_URL}?lines=${lines}`;
+    const data  = await fetch(url).then(r => r.json());
+    const csrf  = getCsrf();
+    const showLog = getLogVisible();
+
+    for (const [id, info] of Object.entries(data)) {
+      // update log strip (only if visible)
+      if (showLog) {
+        const logEl = document.querySelector(`.log-strip[data-target-id="${id}"]`);
+        if (logEl && info.log_tail !== undefined) logEl.textContent = info.log_tail;
+      }
+      // update log mtime
+      if (info.log_mtime !== undefined) {
+        const mtimeEl = document.querySelector(`.log-mtime-val[data-target-id="${id}"]`);
+        if (mtimeEl) {
+          mtimeEl.dataset.ts = info.log_mtime || '';
+          mtimeEl.textContent = relativeTime(info.log_mtime);
+        }
+      }
+
+      if (lastStatus[id] === info.status) continue;
+      lastStatus[id] = info.status;
+
+      const badge = document.querySelector(`.status-badge[data-target-id="${id}"]`);
+      const pid   = document.querySelector(`.pid-val[data-target-id="${id}"]`);
+      const btns  = document.querySelector(`.action-btns[data-target-id="${id}"]`);
+      const arrow = document.querySelector(`.sync-arrow[data-target-id="${id}"]`);
+      if (!badge) continue;
+
+      badge.innerHTML = BADGE[info.status] ?? BADGE.stopped;
+      if (pid) pid.textContent = info.pid ?? '—';
+      if (arrow) arrow.innerHTML = info.status === 'running' ? ARROW_RUNNING : ARROW_STOPPED;
+
+      if (btns) {
+        const first = btns.firstElementChild;
+        const replacement = document.createElement('div');
+        replacement.innerHTML = info.status === 'running'
+          ? STOP_BTN(id, csrf) : START_BTN(id, csrf);
+        btns.replaceChild(replacement.firstElementChild, first);
+      }
+    }
+  } catch (e) { /* ignore */ }
+}
+
+pollStatus();
+setInterval(pollStatus, 3000);
+</script>
+{% endif %}
+{% endblock %}
