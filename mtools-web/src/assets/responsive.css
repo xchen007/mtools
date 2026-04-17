@@ -1,0 +1,98 @@
+/* 全局响应式布局样式 */
+.main-container {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 24px 32px;
+}
+
+@media (max-width: 900px) {
+  .main-container { padding: 8px 2vw; }
+  .settings-content { padding: 0 2vw !important; }
+  .form-row { flex-direction: column; gap: 0; }
+  .form-row .port-field, .form-row .flex-grow { width: 100% !important; }
+  .el-form-item, .el-input, .el-input-number { font-size: 13px !important; }
+}
+@media (max-width: 600px) {
+  .main-container { padding: 2px 1vw; }
+  .settings-content { padding: 0 1vw !important; }
+  .section-title, .subsection-title { font-size: 15px !important; }
+  .el-button, .el-input, .el-input-number { font-size: 12px !important; }
+  .el-table { font-size: 12px; min-width: 600px; }
+  .el-table__body-wrapper, .el-table__header-wrapper { overflow-x: auto !important; }
+  .side-menu, .el-aside { display: none !important; }
+  .el-card { padding: 8px !important; }
+}
+.flex-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.overflow-x-auto {
+  overflow-x: auto;
+}
+/* 修正 Bisync 表格自启动/失败次数/操作等表头和内容的文字对齐与样式 */
+.el-table th, .el-table td {
+  vertical-align: middle;
+  line-height: 1.6;
+  font-size: 14px;
+  color: #333;
+}
+.el-table th {
+  font-weight: 600;
+  color: #666;
+  background: #f7f8fa;
+}
+.el-table .el-switch__label {
+  font-size: 13px;
+  color: #888;
+  font-weight: 400;
+}
+.el-table .el-switch__label.is-active {
+  color: #1976d2;
+  font-weight: 600;
+}
+.el-table .el-switch {
+  vertical-align: middle;
+}
+.el-table .el-button {
+  font-size: 13px;
+  padding: 2px 10px;
+}
+.el-table .el-tag {
+  font-size: 13px;
+}
+.el-table .fail-count {
+  color: #d23c3c;
+  font-weight: bold;
+  font-size: 15px;
+}
+/* 优化自启动列的显示效果 */
+.autostart-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.2;
+  min-width: 48px;
+}
+.autostart-label {
+  font-size: 13px;
+  color: #888;
+  margin-bottom: 2px;
+  font-weight: 400;
+}
+.autostart-label.active {
+  color: #1976d2;
+  font-weight: 600;
+}
+.autostart-switch {
+  margin-bottom: 2px;
+}
+@media (max-width: 900px) {
+  .el-table th, .el-table td { font-size: 12px; }
+  .el-table .el-switch__label { font-size: 12px; }
+  .el-table .el-button { font-size: 12px; }
+  .el-table .fail-count { font-size: 13px; }
+  .autostart-label { font-size: 12px; }
+  .autostart-cell { min-width: 36px; }
+}
