@@ -1,0 +1,17 @@
+# Python / Django
+mtools-api/.venv/
+mtools-api/__pycache__/
+mtools-api/**/__pycache__/
+mtools-api/*.pyc
+mtools-api/db.sqlite3
+
+# Node / Vue
+mtools-web/node_modules/
+mtools-web/dist/
+mtools-web/.env*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
