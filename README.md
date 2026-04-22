@@ -6,11 +6,13 @@
 
 ```
 mtools/
-├── mtools-api/   # 后端（Django + DRF + Django Channels，需 Python 3.12+）
+├── mtools-api/   # 后端（Django + DRF + Django Channels，需 Python 3.10+）
+│   └── venv/     # Python 虚拟环境（或 .venv/）
 └── mtools-web/   # 前端（Vue 3 + Element Plus）
+    └── node_modules/
 ```
 
-> 后端 `.venv` 使用 Python 3.13（Homebrew），Django 5.2 LTS，支持 Python 3.10+。
+> 后端使用虚拟环境（`venv/` 或 `.venv/`），Django 5.2 LTS，支持 Python 3.10+。
 
 ```
 ```
@@ -23,16 +25,24 @@ mtools/
 
 ```bash
 cd ~/workspace/mtools/mtools-api
-.venv/bin/python manage.py runserver 8009
+
+# 使用虚拟环境的 Python（推荐）
+venv/bin/python manage.py runserver 8009
+# 或使用 .venv/bin/python（如果你的虚拟环境是 .venv/）
+
+# 或先激活虚拟环境
+source venv/bin/activate  # 或 source .venv/bin/activate
+python manage.py runserver 8009
 ```
 
-> ⚠️ 直接用 `.venv/bin/python` 而非 `python` / `python3`，避免系统 alias 指向错误版本。
+> ⚠️ 直接使用 `venv/bin/python` 或 `.venv/bin/python`，避免系统 Python 版本冲突和缺少依赖的问题。
 
 ### 后端（生产模式）
 
 ```bash
 cd ~/workspace/mtools/mtools-api
-.venv/bin/python -m daphne -p 8009 config.asgi:application
+venv/bin/python -m daphne -p 8009 config.asgi:application
+# 或 .venv/bin/python -m daphne -p 8009 config.asgi:application
 ```
 
 ### 前端（Vite HMR，代码改变自动热更新）
@@ -57,14 +67,50 @@ VITE_WS_BASE_URL=ws://localhost:8009
 
 ## 依赖安装
 
-```bash
-# 后端（需 Python 3.10+，使用 venv 内的 pip）
-cd ~/workspace/mtools/mtools-api
-.venv/bin/pip install -r requirements.txt
+### 后端虚拟环境设置
 
-# 前端
-cd ~/workspace/mtools/mtools-web && npm install
+⚠️ **重要**：后端依赖必须安装在虚拟环境中，避免与系统 Python 包冲突。
+
+**首次设置**（如果还没有虚拟环境）：
+
+```bash
+cd ~/workspace/mtools/mtools-api
+
+# 创建虚拟环境（二选一）
+python -m venv venv        # 创建 venv/
+# 或
+python -m venv .venv       # 创建 .venv/（隐藏目录）
+
+# 激活虚拟环境
+source venv/bin/activate   # 如果使用 venv/
+# 或
+source .venv/bin/activate  # 如果使用 .venv/
+
+# 安装依赖
+pip install -r requirements.txt
 ```
+
+**日常使用**（虚拟环境已存在）：
+
+```bash
+cd ~/workspace/mtools/mtools-api
+
+# 方式 1: 激活虚拟环境后使用
+source venv/bin/activate   # 或 source .venv/bin/activate
+python manage.py runserver 8009
+
+# 方式 2: 直接使用虚拟环境的 Python（无需激活）
+venv/bin/python manage.py runserver 8009   # 或 .venv/bin/python
+```
+
+### 前端依赖
+
+```bash
+cd ~/workspace/mtools/mtools-web
+npm install
+```
+
+### 额外工具
 
 - Bisync 需要 [unison](https://github.com/bcpierce00/unison)：`brew install unison`
 - 实时监控（可选，更低延迟）：`brew install fswatch`

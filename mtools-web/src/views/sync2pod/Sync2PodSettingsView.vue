@@ -6,8 +6,10 @@ import { useSync2PodStore } from '@/stores/sync2pod'
 const store = useSync2PodStore()
 
 const form = reactive({
-  is_tess: false,
+  is_tess: false,  // 已废弃，但保留以兼容旧数据
   show_list_log: false,
+  custom_kubectl_cmd: '',
+  custom_docker_cmd: '',
   alert_email: '',
   smtp_host: '',
   smtp_port: 587,
@@ -39,14 +41,6 @@ async function handleSave() {
   <div class="main-container settings-content">
     <h3 class="section-title">Sync2Pod 配置</h3>
 
-    <!-- TESS 环境 -->
-    <div class="option-card" :class="{ 'is-active': form.is_tess }">
-      <el-checkbox v-model="form.is_tess">
-        <span class="option-label">Tess 环境（全局默认）</span>
-      </el-checkbox>
-      <p class="option-desc">启用后，所有新建任务默认使用 tess kubectl；已有任务不受影响</p>
-    </div>
-
     <!-- 列表显示日志 -->
     <div class="option-card">
       <el-checkbox v-model="form.show_list_log">
@@ -54,6 +48,35 @@ async function handleSave() {
       </el-checkbox>
       <p class="option-desc">启用后，列表操作栏显示日志按钮，可展开内联日志面板</p>
     </div>
+
+    <el-divider />
+
+    <!-- 自定义命令 -->
+    <h4 class="subsection-title">自定义命令</h4>
+
+    <el-form :model="form" label-position="top" style="max-width: 800px; margin-bottom: 24px">
+      <el-form-item label="自定义 kubectl 命令">
+        <el-input
+          v-model="form.custom_kubectl_cmd"
+          placeholder="例如: tess kubectl（留空使用默认 kubectl）"
+        />
+        <div class="field-hint">
+          自定义 kubectl 命令前缀，例如 "tess kubectl" 或 "/usr/local/bin/kubectl"。<br>
+          优先级：自定义命令 > is_tess 设置 > 默认 kubectl
+        </div>
+      </el-form-item>
+
+      <el-form-item label="自定义 docker 命令">
+        <el-input
+          v-model="form.custom_docker_cmd"
+          placeholder="例如: podman（留空使用默认 docker）"
+          disabled
+        />
+        <div class="field-hint">
+          自定义 docker 命令（Docker 容器同步功能暂未实现）
+        </div>
+      </el-form-item>
+    </el-form>
 
     <el-divider />
 

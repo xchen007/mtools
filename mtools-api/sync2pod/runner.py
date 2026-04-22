@@ -72,7 +72,20 @@ def main() -> None:
         logger.error(f"❌ source_dir 不存在或不是目录: {source_dir}")
         sys.exit(1)
 
-    kubectl_cmd = build_kubectl_cmd(is_tess=args.tess)
+    # Get custom kubectl command from global config
+    custom_kubectl = ""
+    try:
+        import django
+        import os as django_os
+        django_os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+        django.setup()
+        from sync2pod.models import Sync2PodConfig
+        config = Sync2PodConfig.get()
+        custom_kubectl = config.custom_kubectl_cmd or ""
+    except Exception:
+        pass  # Ignore errors, fallback to default
+
+    kubectl_cmd = build_kubectl_cmd(is_tess=args.tess, custom_cmd=custom_kubectl)
     logger.info(f"📂 source:     {source_dir}")
     if pod_label:
         logger.info(f"🏷  pod-label:  {pod_label}")
@@ -101,6 +114,7 @@ def main() -> None:
         pod_name, pod_label, args.pod_dir,
         args.namespace, args.container, args.cluster,
         interval=args.interval,
+        task_name=args.name or "",
     )
 
 

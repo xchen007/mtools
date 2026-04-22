@@ -54,12 +54,14 @@ class Sync2PodTaskLogConsumer(JsonWebsocketConsumer):
                         'status': task.status,
                         'pid': task.pid,
                         'log_mtime': ts,
+                        'last_sync_at': task.last_sync_at.isoformat() if task.last_sync_at else None,
                     })
                 else:
                     self.send_json({
                         'type': 'status',
                         'status': task.status,
                         'pid': task.pid,
+                        'last_sync_at': task.last_sync_at.isoformat() if task.last_sync_at else None,
                     })
             except Sync2PodTask.DoesNotExist:
                 self.send_json({'type': 'error', 'message': 'task not found'})

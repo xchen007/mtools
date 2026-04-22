@@ -12,11 +12,11 @@ class Sync2PodTaskSerializer(serializers.ModelSerializer):
             'id', 'name', 'pod_type', 'source_dir',
             'cluster', 'namespace', 'pod_label', 'pod', 'container', 'pod_dir',
             'is_tess', 'interval', 'enable_alert',
-            'status', 'pid',
+            'status', 'pid', 'last_sync_at',
             'created_at', 'updated_at',
             'log_tail',
         ]
-        read_only_fields = ['id', 'status', 'pid', 'created_at', 'updated_at', 'log_tail']
+        read_only_fields = ['id', 'status', 'pid', 'last_sync_at', 'created_at', 'updated_at', 'log_tail']
 
     def get_log_tail(self, obj) -> str:
         import re
@@ -70,6 +70,7 @@ class Sync2PodConfigSerializer(serializers.ModelSerializer):
         model = Sync2PodConfig
         fields = [
             'is_tess', 'show_list_log',
+            'custom_kubectl_cmd', 'custom_docker_cmd',
             'alert_email', 'smtp_host', 'smtp_port',
             'smtp_user', 'smtp_password', 'smtp_use_tls',
         ]

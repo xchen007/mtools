@@ -41,11 +41,14 @@ class Sync2PodTask(models.Model):
     is_tess   = models.BooleanField(default=True, verbose_name='Tess 环境',
                                     help_text='启用后 kubectl 替换为 tess kubectl')
     interval  = models.IntegerField(default=3, verbose_name='轮询间隔(秒)')
+    max_workers = models.IntegerField(default=5, verbose_name='并发上传数',
+                                      help_text='同时上传文件的最大数量（1-20）')
     enable_alert = models.BooleanField(default=True, verbose_name='异常停止告警',
                                        help_text='非主动停止时发送邮件告警（需配置全局 SMTP）')
     status    = models.CharField(max_length=20, choices=STATUS_CHOICES,
                                  default=STATUS_STOPPED, verbose_name='状态')
     pid       = models.IntegerField(null=True, blank=True, verbose_name='进程ID')
+    last_sync_at = models.DateTimeField(null=True, blank=True, verbose_name='最后同步时间')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True,     verbose_name='更新时间')
 
@@ -119,6 +122,20 @@ class Sync2PodConfig(models.Model):
         default=True,
         verbose_name='列表页显示日志',
         help_text='启用后，任务列表操作栏显示日志按钮，可展开内联日志面板',
+    )
+
+    # ── 自定义命令配置 ─────────────────────────────────────────────────────
+    custom_kubectl_cmd = models.CharField(
+        max_length=500,
+        blank=True,
+        verbose_name='自定义 kubectl 命令',
+        help_text='自定义 kubectl 命令（如 "tess kubectl"），留空使用默认 kubectl'
+    )
+    custom_docker_cmd = models.CharField(
+        max_length=500,
+        blank=True,
+        verbose_name='自定义 docker 命令',
+        help_text='自定义 docker 命令，留空使用默认 docker（Docker 功能暂未实现）'
     )
 
     # ── 邮件告警 SMTP 配置 ─────────────────────────────────────────────────

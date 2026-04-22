@@ -21,7 +21,7 @@ const form = reactive({
   pod: '',
   container: '',
   pod_dir: '',
-  is_tess: true,
+  is_tess: false,  // 已废弃，使用全局 custom_kubectl_cmd
   enable_alert: false,
   interval: 5,
 })
@@ -35,7 +35,9 @@ const rules: FormRules = {
 async function loadKubeContext(silent = false) {
   loadingContext.value = true
   try {
-    const res = await sync2podApi.getKubeContext(form.is_tess)
+    // Use global config to determine if using custom kubectl (e.g., tess kubectl)
+    const useTess = store.config?.custom_kubectl_cmd?.includes('tess') ?? false
+    const res = await sync2podApi.getKubeContext(useTess)
     if (res.data.error) {
       ElMessage.warning(`读取上下文失败：${res.data.error}`)
       return
@@ -50,18 +52,11 @@ async function loadKubeContext(silent = false) {
   }
 }
 
-// Auto-load on mount with global config is_tess default
+// Auto-load on mount
 onMounted(async () => {
-  // Fetch global config to get is_tess default
   await store.fetchConfig()
-  if (store.config) {
-    form.is_tess = store.config.is_tess
-  }
   await loadKubeContext(true)
 })
-
-// Re-fetch context when TESS switch is toggled
-watch(() => form.is_tess, () => loadKubeContext(true))
 
 async function handleSubmit() {
   await formRef.value?.validate()
@@ -119,15 +114,16 @@ async function handleSubmitAndStart() {
       </el-form-item>
 
       <template v-if="form.pod_type === 'k8s'">
-        <el-form-item label="TESS 环境">
-          <el-switch v-model="form.is_tess" />
+        <el-form-item label="Kubernetes 上下文">
           <el-button
-            style="margin-left: 12px"
             size="small"
             :loading="loadingContext"
             @click="loadKubeContext"
             >读取当前上下文</el-button
           >
+          <span style="margin-left: 12px; font-size: 12px; color: #909399">
+            kubectl 命令可在全局设置中配置
+          </span>
         </el-form-item>
         <el-form-item label="集群">
           <el-input v-model="form.cluster" placeholder="cluster name" />

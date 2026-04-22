@@ -28,6 +28,11 @@ async function handleStop() {
   ElMessage.success('已停止')
 }
 
+async function handleRestart() {
+  await store.restartTask(taskId)
+  ElMessage.success('重启成功')
+}
+
 async function handleDelete() {
   await ElMessageBox.confirm('确认删除该任务？', '提示', { type: 'warning' })
   await store.deleteTask(taskId)
@@ -57,6 +62,13 @@ async function handleDelete() {
               >启动</el-button
             >
             <el-button v-else type="warning" size="small" @click="handleStop">停止</el-button>
+            <el-button
+              v-if="task.status === 'running'"
+              type="primary"
+              size="small"
+              @click="handleRestart"
+              >重启</el-button
+            >
             <el-button size="small" @click="router.push(`/sync2pod/${taskId}/edit`)">编辑</el-button>
             <el-button type="danger" size="small" @click="handleDelete">删除</el-button>
           </div>

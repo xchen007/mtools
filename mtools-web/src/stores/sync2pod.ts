@@ -52,6 +52,11 @@ export const useSync2PodStore = defineStore('sync2pod', () => {
     await fetchTasks()
   }
 
+  async function restartTask(id: number) {
+    await sync2podApi.restartTask(id)
+    await fetchTasks()
+  }
+
   async function updateConfig(data: Partial<Sync2PodConfig>) {
     const res = await sync2podApi.updateConfig(data)
     config.value = res.data
@@ -69,6 +74,7 @@ export const useSync2PodStore = defineStore('sync2pod', () => {
     deleteTask,
     startTask,
     stopTask,
+    restartTask,
     updateConfig,
   }
 })

@@ -10,10 +10,24 @@ const router = useRouter()
 
 let timer: ReturnType<typeof setInterval> | null = null
 
+// Expanded rows state with localStorage persistence
+const STORAGE_KEY = 'sync2pod_expanded_rows'
+const expandedRows = ref<number[]>([])
+
 onMounted(async () => {
   await store.fetchTasks()
   await store.fetchConfig()
   timer = setInterval(() => store.fetchTasks(), 3000)
+
+  // Load expanded rows from localStorage
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    if (stored) {
+      expandedRows.value = JSON.parse(stored)
+    }
+  } catch (e) {
+    console.error('Failed to load expanded rows state:', e)
+  }
 })
 
 onUnmounted(() => {
@@ -36,7 +50,57 @@ async function handleStop(id: number) {
   ElMessage.success('已停止')
 }
 
-const expandedRows = ref<number[]>([])
+async function handleRestart(id: number) {
+  await store.restartTask(id)
+  ElMessage.success('重启成功')
+}
+
+// Save expanded state to localStorage when it changes
+function handleExpandChange(row: any, expandedRowsList: any[]) {
+  const taskId = row.id
+  const isExpanded = expandedRowsList.some((r: any) => r.id === taskId)
+
+  if (isExpanded) {
+    // Add to expanded rows
+    if (!expandedRows.value.includes(taskId)) {
+      expandedRows.value.push(taskId)
+    }
+  } else {
+    // Remove from expanded rows
+    expandedRows.value = expandedRows.value.filter(id => id !== taskId)
+  }
+
+  // Save to localStorage
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(expandedRows.value))
+  } catch (e) {
+    console.error('Failed to save expanded rows state:', e)
+  }
+}
+
+function formatRelativeTime(isoString: string): string {
+  const now = new Date()
+  const then = new Date(isoString)
+  const diffMs = now.getTime() - then.getTime()
+  const diffSec = Math.floor(diffMs / 1000)
+  const diffMin = Math.floor(diffSec / 60)
+  const diffHour = Math.floor(diffMin / 60)
+  const diffDay = Math.floor(diffHour / 24)
+
+  if (diffSec < 10) return '刚刚'
+  if (diffSec < 60) return `${diffSec}秒前`
+  if (diffMin < 60) return `${diffMin}分钟前`
+  if (diffHour < 24) return `${diffHour}小时前`
+  if (diffDay < 7) return `${diffDay}天前`
+
+  // 超过7天显示具体日期
+  return then.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
 </script>
 
 <template>
@@ -52,6 +116,9 @@ const expandedRows = ref<number[]>([])
       v-else
       :data="store.tasks"
       v-loading="store.loading"
+      :expand-row-keys="expandedRows"
+      row-key="id"
+      @expand-change="handleExpandChange"
       class="overflow-x-auto"
       style="width: 100%"
     >
@@ -74,12 +141,20 @@ const expandedRows = ref<number[]>([])
         </template>
       </el-table-column>
       <el-table-column prop="pid" label="PID" width="80" />
+      <el-table-column label="最后同步" width="160">
+        <template #default="{ row }">
+          <span v-if="row.last_sync_at" style="font-size: 12px">
+            {{ formatRelativeTime(row.last_sync_at) }}
+          </span>
+          <span v-else style="font-size: 12px; color: #999">未同步</span>
+        </template>
+      </el-table-column>
       <el-table-column label="目录" min-width="200">
         <template #default="{ row }">
           <span style="font-size: 12px">{{ row.source_dir }} → {{ row.pod_dir }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="260">
+      <el-table-column label="操作" width="320">
         <template #default="{ row }">
           <el-button
             v-if="row.status !== 'running'"
@@ -89,6 +164,13 @@ const expandedRows = ref<number[]>([])
             >启动</el-button
           >
           <el-button v-else size="small" type="warning" @click="handleStop(row.id)">停止</el-button>
+          <el-button
+            v-if="row.status === 'running'"
+            size="small"
+            type="primary"
+            @click="handleRestart(row.id)"
+            >重启</el-button
+          >
           <el-button size="small" @click="router.push(`/sync2pod/${row.id}/edit`)">编辑</el-button>
           <el-button size="small" @click="router.push(`/sync2pod/${row.id}`)">详情</el-button>
           <el-button size="small" type="danger" @click="handleDeleteTask(row.id)">删除</el-button>

@@ -11,6 +11,7 @@ export const sync2podApi = {
   deleteTask: (id: number) => client.delete(`${BASE}/tasks/${id}/`),
   startTask: (id: number) => client.post(`${BASE}/tasks/${id}/start/`),
   stopTask: (id: number) => client.post(`${BASE}/tasks/${id}/stop/`),
+  restartTask: (id: number) => client.post(`${BASE}/tasks/${id}/restart/`),
   getLogs: (id: number) => client.get(`${BASE}/tasks/${id}/logs/`),
   getKubeContext: (tess: boolean) => client.get<KubeContext>(`${BASE}/kube-context/`, { params: { tess: tess ? '1' : '0' } }),
   getConfig: () => client.get<Sync2PodConfig>(`${BASE}/config/`),

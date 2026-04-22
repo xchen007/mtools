@@ -21,6 +21,17 @@ def _strip_ansi(text: str) -> str:
     return ANSI_ESCAPE.sub('', text)
 
 
+def _clear_log_file(log_file: Path) -> None:
+    """Clear log file content."""
+    try:
+        if log_file.exists():
+            log_file.unlink()  # Delete the file
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+            log_file.touch()  # Create empty file
+    except Exception:
+        pass  # Ignore errors during cleanup
+
+
 def _tail(path: Path, n: int) -> str:
     if not path.exists():
         return ''
@@ -97,8 +108,11 @@ class Sync2PodTaskViewSet(ModelViewSet):
             task.save(update_fields=['status', 'updated_at'])
             return Response({'status': 'error', 'reason': f'source_missing: {source}'},
                             status=status.HTTP_400_BAD_REQUEST)
+
+        # Clear log file before starting
         log_file = task.log_file
         log_file.parent.mkdir(parents=True, exist_ok=True)
+        _clear_log_file(log_file)
         cmd = [
             sys.executable, str(SYNC2POD_RUNNER),
             task.source_dir,
@@ -127,7 +141,67 @@ class Sync2PodTaskViewSet(ModelViewSet):
     def stop(self, request, pk=None):
         task = self.get_object()
         task.terminate()
+
+        # Clear log file after stopping
+        _clear_log_file(task.log_file)
+
         return Response({'status': 'stopped'})
+
+    @action(detail=True, methods=['post'])
+    def restart(self, request, pk=None):
+        """Restart task: stop -> clear logs -> start."""
+        task = self.get_object()
+
+        # Stop if running
+        if task.status == Sync2PodTask.STATUS_RUNNING:
+            task.terminate()
+
+        # Clear log file
+        _clear_log_file(task.log_file)
+
+        # Start the task (reuse start logic)
+        if task.pod_type == Sync2PodTask.POD_TYPE_DOCKER:
+            task.status = Sync2PodTask.STATUS_ERROR
+            task.save(update_fields=['status', 'updated_at'])
+            return Response({'status': 'error', 'reason': 'docker_not_implemented'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        source = Path(task.source_dir).expanduser()
+        if not source.is_dir():
+            task.status = Sync2PodTask.STATUS_ERROR
+            task.save(update_fields=['status', 'updated_at'])
+            return Response({'status': 'error', 'reason': f'source_missing: {source}'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        log_file = task.log_file
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+
+        cmd = [
+            sys.executable, str(SYNC2POD_RUNNER),
+            task.source_dir,
+            task.pod or '',
+            task.pod_dir,
+            '--namespace', task.namespace,
+            '--interval', str(task.interval),
+            '--name', task.name,
+        ]
+        if task.pod_label:
+            cmd += ['--pod-label', task.pod_label]
+        if task.cluster:
+            cmd += ['--cluster', task.cluster]
+        if task.container:
+            cmd += ['--container', task.container]
+        if task.is_tess:
+            cmd += ['--tess']
+
+        with open(log_file, 'a') as lf:
+            proc = subprocess.Popen(cmd, stdout=lf, stderr=lf, start_new_session=True)
+
+        task.pid = proc.pid
+        task.status = Sync2PodTask.STATUS_RUNNING
+        task.save(update_fields=['pid', 'status', 'updated_at'])
+
+        return Response({'status': 'restarted', 'pid': task.pid})
 
     @action(detail=True, methods=['get'])
     def logs(self, request, pk=None):
