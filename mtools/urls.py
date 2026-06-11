@@ -20,7 +20,6 @@ from jira_workspace import views as jira_workspace_views
 urlpatterns = [
     path('', lambda request: redirect('/workspace/', permanent=False)),
     path('admin/', admin.site.urls),
-    path('notion/', include('notion.urls',namespace='notion')),
     path('jira/', include('jira_workspace.urls', namespace='jira_workspace')),
     path('workspace/', jira_workspace_views.workspace_home),
     path('sync2pod/', jira_workspace_views.sync2pod),

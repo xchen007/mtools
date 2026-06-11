@@ -77,8 +77,7 @@ Run the full workspace test suite:
 ```text
 mtools/
 ├── apps/
-│   ├── jira_workspace/
-│   └── notion/
+│   └── jira_workspace/
 ├── mtools/
 ├── static/
 │   └── jira_workspace/
