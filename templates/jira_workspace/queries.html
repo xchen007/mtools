@@ -11,11 +11,40 @@
     </div>
   </div>
 
-  <section class="panel">
-    <div class="panel__header">
-      <h2 class="section-title">Query Library</h2>
-    </div>
-    {% include "jira_workspace/partials/query_library.html" with saved_queries=saved_queries %}
-  </section>
+  <div class="dashboard-grid">
+    <section class="panel">
+      <div class="panel__header">
+        <h2 class="section-title">Query Library</h2>
+      </div>
+      {% include "jira_workspace/partials/query_library.html" with saved_queries=saved_queries %}
+    </section>
+
+    <section class="panel panel--tight">
+      <div class="panel__header">
+        <h2 class="section-title">Project Filter</h2>
+      </div>
+      {% if selected_query %}
+        <div class="recent-list">
+          <article class="recent-item">
+            <div class="recent-item__top">
+              <span class="issue-key">JQL</span>
+              <span class="issue-status">{{ selected_query.profile.name }}</span>
+            </div>
+            <div class="recent-item__summary">{{ selected_query.jql_text|default:selected_query.profile.jql|default:"-"|safe }}</div>
+            <pre class="meta-grid__code">{{ selected_query.jql_text|default:selected_query.profile.jql|default:"-"|safe }}</pre>
+          </article>
+          <article class="recent-item">
+            <div class="recent-item__top">
+              <span class="issue-key">Status Filter</span>
+              <span class="issue-status">{{ selected_query.filters_json.status|join:", "|default:"-" }}</span>
+            </div>
+            <div class="recent-item__summary">Project Filter: {{ selected_query.filters_json.project|join:", "|default:"All projects" }}</div>
+          </article>
+        </div>
+      {% else %}
+        <p class="empty-state">No query selected.</p>
+      {% endif %}
+    </section>
+  </div>
 </section>
 {% endblock %}

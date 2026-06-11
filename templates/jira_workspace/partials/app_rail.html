@@ -1,14 +1,18 @@
 <aside class="app-rail">
-  <section class="rail-box">
-    <h2 class="rail-title">Activity</h2>
-    <div class="rail-item"><span>Jira sync</span><span>ready</span></div>
-    <div class="rail-item"><span>sync2pod</span><span>idle</span></div>
-    <div class="rail-item"><span>catalog scan</span><span>queued</span></div>
-  </section>
-  <section class="rail-box">
-    <h2 class="rail-title">Health</h2>
-    <div class="rail-item"><span>Static assets</span><span>ok</span></div>
-    <div class="rail-item"><span>DB cache</span><span>ok</span></div>
-    <div class="rail-item"><span>Jira API</span><span>check</span></div>
-  </section>
+  {% for section in shell_rail_sections %}
+    <section class="rail-box" data-rail-section="{{ section.title|slugify }}">
+      <h2 class="rail-title">{{ section.title }}</h2>
+      {% for item in section.items %}
+        <div class="rail-item">
+          <span>{{ item.label }}</span>
+          <span>{{ item.value }}</span>
+        </div>
+      {% empty %}
+        <div class="rail-item rail-item--empty" data-rail-empty>
+          <span>No data</span>
+          <span>--</span>
+        </div>
+      {% endfor %}
+    </section>
+  {% endfor %}
 </aside>

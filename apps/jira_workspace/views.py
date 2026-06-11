@@ -3,10 +3,18 @@ from datetime import timedelta
 from django.shortcuts import render
 from django.utils import timezone
 
-from jira_workspace.forms import JiraSavedQueryForm, JiraSyncProfileForm
+from jira_workspace.forms import JiraIssueFilterForm, JiraSavedQueryForm, JiraSyncProfileForm
 from jira_workspace.models import JiraSavedQuery, JiraSyncProfile, JiraSyncRun
-from jira_workspace.services.query_service import build_issue_queryset
-from jira_workspace.services.stats_service import build_dashboard_project_groups
+from jira_workspace.services.query_service import (
+    build_issue_filter_options,
+    build_issue_queryset,
+    normalize_issue_filters,
+)
+from jira_workspace.services.stats_service import (
+    build_dashboard_project_groups,
+    build_dashboard_summary,
+)
+from jira_workspace.services.sync_service import SyncService
 
 DEFAULT_RANGE_KEY = "15d"
 DEFAULT_USERNAME = "xchen17"
@@ -27,6 +35,24 @@ def _base_shell_context(*, title, breadcrumb, quick_action="Quick Action", env_l
         "shell_quick_action": quick_action,
         "shell_env_label": env_label,
         "shell_user": _resolve_username(),
+        "shell_rail_sections": [
+            {
+                "title": "Activity",
+                "items": [
+                    {"label": "Jira sync", "value": "available"},
+                    {"label": "sync2pod", "value": "pending"},
+                    {"label": "catalog scan", "value": "pending"},
+                ],
+            },
+            {
+                "title": "Health",
+                "items": [
+                    {"label": "Static assets", "value": "ok"},
+                    {"label": "DB cache", "value": "ok"},
+                    {"label": "External APIs", "value": "check"},
+                ],
+            },
+        ],
     }
 
 
@@ -78,6 +104,11 @@ def dashboard(request):
         "active_source": "all",
         "active_project": "",
         "username": username,
+        "dashboard_metrics": build_dashboard_summary(
+            username=username,
+            start=start,
+            end=end,
+        ),
     }
     context.update(
         _base_shell_context(
@@ -115,8 +146,15 @@ def queries(request):
     saved_queries = JiraSavedQuery.objects.select_related("profile").order_by(
         "-is_pinned", "-is_starred", "name"
     )
+    selected_query = saved_queries.first()
+    selected_filters = (selected_query.filters_json if selected_query else {}) or {}
     context = {
         "saved_queries": saved_queries,
+        "selected_query": selected_query,
+        "selected_query_filters": [
+            {"label": "Project Filter", "value": ", ".join(selected_filters.get("project", [])) or "Any"},
+            {"label": "Status Filter", "value": ", ".join(selected_filters.get("status", [])) or "Any"},
+        ],
         "query_form": JiraSavedQueryForm(),
     }
     context.update(
@@ -131,10 +169,13 @@ def queries(request):
 
 def profiles(request):
     profiles_qs = JiraSyncProfile.objects.order_by("-is_default", "name")
-    sync_runs = JiraSyncRun.objects.select_related("profile").order_by("-started_at")[:20]
+    sync_status = SyncService().build_sync_status()
     context = {
         "profiles": profiles_qs,
-        "sync_runs": sync_runs,
+        "sync_runs": sync_status["recent_runs"],
+        "latest_failed_run": sync_status["latest_failure"],
+        "jira_blocker_message": sync_status["blocker_message"],
+        "has_external_blocker": sync_status["has_external_blocker"],
         "profile_form": JiraSyncProfileForm(),
     }
     context.update(
@@ -185,9 +226,43 @@ def workspace_home(request):
 
 
 def issues(request):
-    ticket_rows = build_issue_queryset(username=_resolve_username())[:20]
+    username = _resolve_username()
+    filter_options = build_issue_filter_options(username=username)
+    normalized_filters = normalize_issue_filters(
+        username=username,
+        source=request.GET.get("source", "all"),
+        project_key=request.GET.get("project"),
+        status=request.GET.get("status"),
+        search=request.GET.get("query"),
+        sort_by=request.GET.get("sort_by", "updated_at"),
+        sort_order=request.GET.get("sort_order", "desc"),
+    )
+    ticket_rows = build_issue_queryset(
+        **normalized_filters,
+    )[:20]
     context = {
         "ticket_rows": ticket_rows,
+        "saved_queries": JiraSavedQuery.objects.select_related("profile").order_by(
+            "-is_pinned", "-is_starred", "name"
+        )[:6],
+        "issue_filter_options": filter_options,
+        "issue_filter_form": JiraIssueFilterForm(
+            initial={
+                "source": normalized_filters["source"],
+                "project": normalized_filters["project_key"],
+                "status": normalized_filters["status"],
+                "sort_by": normalized_filters["sort_by"],
+                "sort_order": normalized_filters["sort_order"],
+                "query": normalized_filters["search"],
+            },
+            filter_options=filter_options,
+        ),
+        "issue_filters": {
+            "search": normalized_filters["search"],
+            "project": normalized_filters["project_key"],
+            "status": normalized_filters["status"],
+            "source": normalized_filters["source"],
+        },
     }
     context.update(
         _base_shell_context(
@@ -200,7 +275,24 @@ def issues(request):
 
 
 def sync(request):
-    return profiles(request)
+    profiles_qs = JiraSyncProfile.objects.order_by("-is_default", "name")
+    sync_status = SyncService().build_sync_status()
+    context = {
+        "profiles": profiles_qs,
+        "sync_runs": sync_status["recent_runs"],
+        "latest_failed_run": sync_status["latest_failure"],
+        "jira_blocker_message": sync_status["blocker_message"],
+        "has_external_blocker": sync_status["has_external_blocker"],
+        "profile_form": JiraSyncProfileForm(),
+    }
+    context.update(
+        _base_shell_context(
+            title="Jira Sync",
+            breadcrumb="Workspace / Jira / Sync",
+            quick_action="Start Sync",
+        )
+    )
+    return render(request, "jira_workspace/sync.html", context)
 
 
 def query(request):

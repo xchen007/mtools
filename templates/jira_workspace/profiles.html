@@ -14,7 +14,7 @@
   <div class="stack">
     <section class="panel">
       <div class="panel__header">
-        <h2 class="section-title">Profiles</h2>
+        <h2 class="section-title">Run Configuration Presets</h2>
       </div>
       <div class="profile-list">
         {% for profile in profiles %}
@@ -44,8 +44,17 @@
 
     <section class="panel">
       <div class="panel__header">
-        <h2 class="section-title">Recent Sync Runs</h2>
+        <h2 class="section-title">Sync Run Timeline</h2>
       </div>
+      {% if jira_blocker_message %}
+        <article class="recent-item">
+          <div class="recent-item__top">
+            <span class="issue-key">External Jira access is currently blocked</span>
+            <span class="issue-status">attention</span>
+          </div>
+          <div class="recent-item__summary">{{ jira_blocker_message }}</div>
+        </article>
+      {% endif %}
       {% include "jira_workspace/partials/sync_runs.html" with sync_runs=sync_runs %}
     </section>
   </div>

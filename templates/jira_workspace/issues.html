@@ -11,11 +11,28 @@
     </div>
   </div>
 
-  <section class="panel">
-    <div class="panel__header">
-      <h2 class="section-title">Issue Results</h2>
-    </div>
-    {% include "jira_workspace/partials/ticket_table.html" with ticket_rows=ticket_rows %}
-  </section>
+  <div class="dashboard-grid">
+    <aside class="dashboard-sidebar">
+      <section class="panel panel--tight">
+        <div class="panel__header">
+          <h2 class="section-title">Saved Views</h2>
+        </div>
+        {% include "jira_workspace/partials/query_library.html" with saved_queries=saved_queries %}
+      </section>
+    </aside>
+
+    <section class="panel">
+      <div class="panel__header">
+        <h2 class="section-title">Issue Results</h2>
+        <span class="status-pill status-pill--neutral">Bulk Actions</span>
+      </div>
+      <div class="chip-row">
+        <span class="status-pill status-pill--neutral">Search: {{ issue_filters.search|default:"-" }}</span>
+        <span class="status-pill status-pill--neutral">Project: {{ issue_filters.project|default:"All" }}</span>
+        <span class="status-pill status-pill--neutral">Status: {{ issue_filters.status|default:"All" }}</span>
+      </div>
+      {% include "jira_workspace/partials/ticket_table.html" with ticket_rows=ticket_rows %}
+    </section>
+  </div>
 </section>
 {% endblock %}

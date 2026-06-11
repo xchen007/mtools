@@ -6,7 +6,7 @@
     Mode: Django
   </div>
   <nav class="nav-group" aria-label="Workspace">
-    <a class="nav-link{% if request.resolver_match.url_name == 'workspace_home' %} active{% endif %}" href="{% url 'jira_workspace:workspace_home' %}">
+    <a class="nav-link{% if request.path == '/workspace/' or request.resolver_match.url_name == 'workspace_home' %} active{% endif %}" href="/workspace/">
       <span>Workspace</span>
       <span class="nav-badge">Home</span>
     </a>
@@ -26,11 +26,11 @@
       <span>Jira Sync</span>
       <span class="nav-badge">Sync</span>
     </a>
-    <a class="nav-link{% if request.resolver_match.url_name == 'sync2pod' %} active{% endif %}" href="{% url 'jira_workspace:sync2pod' %}">
+    <a class="nav-link{% if request.path == '/sync2pod/' or request.resolver_match.url_name == 'sync2pod' %} active{% endif %}" href="/sync2pod/">
       <span>sync2pod</span>
       <span class="nav-badge">Exec</span>
     </a>
-    <a class="nav-link{% if request.resolver_match.url_name == 'integrations' %} active{% endif %}" href="{% url 'jira_workspace:integrations' %}">
+    <a class="nav-link{% if request.path == '/integrations/' or request.resolver_match.url_name == 'integrations' %} active{% endif %}" href="/integrations/">
       <span>Integrations</span>
       <span class="nav-badge">Catalog</span>
     </a>
