@@ -47,6 +47,9 @@ class Migration(migrations.Migration):
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
             ],
+            options={
+                'constraints': [models.UniqueConstraint(condition=models.Q(is_default=True), fields=('is_default',), name='jira_workspace_single_default_profile')],
+            },
         ),
         migrations.CreateModel(
             name='JiraSyncRun',

@@ -46,6 +46,15 @@ class JiraSyncProfile(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["is_default"],
+                condition=models.Q(is_default=True),
+                name="jira_workspace_single_default_profile",
+            )
+        ]
+
     def __str__(self):
         return self.name
 
