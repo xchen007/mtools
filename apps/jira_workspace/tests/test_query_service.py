@@ -44,6 +44,16 @@ class JiraWorkspaceQueryServiceTests(TestCase):
 
         assert list(qs.values_list("issue_key", flat=True)) == ["TESS-321"]
 
+    def test_build_issue_queryset_filters_reported_issues_for_created_source(self):
+        qs = build_issue_queryset(username="xchen17", source="created")
+
+        assert list(qs.values_list("issue_key", flat=True)) == ["OPS-778"]
+
+    def test_build_issue_queryset_returns_assigned_and_reported_issues_for_all_source(self):
+        qs = build_issue_queryset(username="xchen17", source="all")
+
+        assert list(qs.values_list("issue_key", flat=True)) == ["TESS-321", "OPS-778"]
+
     def test_build_dashboard_project_groups_separates_assigned_and_created_projects(self):
         groups = build_dashboard_project_groups(username="xchen17")
 
