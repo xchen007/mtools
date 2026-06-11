@@ -11,8 +11,10 @@ VALID_SORT_FIELDS = (
     "project_key",
     "reporter",
     "status",
+    "summary",
     "updated_at",
 )
+VALID_SORT_ORDERS = ("asc", "desc")
 
 
 def build_issue_queryset(
@@ -36,6 +38,12 @@ def build_issue_queryset(
         expected_sort_fields = ", ".join(VALID_SORT_FIELDS)
         raise ValueError(
             f"Invalid sort_by '{sort_by}'. Expected one of: {expected_sort_fields}."
+        )
+
+    if sort_order not in VALID_SORT_ORDERS:
+        expected_sort_orders = ", ".join(VALID_SORT_ORDERS)
+        raise ValueError(
+            f"Invalid sort_order '{sort_order}'. Expected one of: {expected_sort_orders}."
         )
 
     queryset = JiraIssue.objects.all()
