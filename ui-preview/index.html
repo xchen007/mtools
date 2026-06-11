@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>mtools | Workspace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #060b15;
+      --shell: rgba(8, 14, 27, 0.92);
+      --surface: rgba(12, 21, 42, 0.86);
+      --surface-2: rgba(15, 27, 54, 0.72);
+      --line: rgba(129, 167, 255, 0.24);
+      --line-strong: rgba(139, 178, 255, 0.36);
+      --text: #dce8ff;
+      --muted: #8ea8d8;
+      --accent: #58f4ff;
+      --ok: #65ffbb;
+      --warn: #ffce78;
+      --err: #ff8da0;
+      --info: #8bb2ff;
+      --radius: 14px;
+      --radius-sm: 10px;
+      --gap: 14px;
+      --shadow: 0 22px 70px rgba(0, 0, 0, 0.45);
+      --font-title: "Space Grotesk", sans-serif;
+      --font-body: "IBM Plex Sans", sans-serif;
+      --font-mono: "IBM Plex Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font-body);
+      color: var(--text);
+      background:
+        radial-gradient(circle at 8% 0%, rgba(53, 93, 182, 0.34), transparent 32%),
+        radial-gradient(circle at 92% 12%, rgba(113, 47, 170, 0.28), transparent 36%),
+        var(--bg);
+      min-height: 100vh;
+    }
+    .app-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 236px minmax(760px, 1fr) 278px;
+    }
+    .left-nav {
+      border-right: 1px solid var(--line);
+      background: var(--shell);
+      padding: 20px 14px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+    }
+    .brand {
+      font-family: var(--font-title);
+      font-size: 22px;
+      letter-spacing: 0.08em;
+      margin: 2px 8px 18px;
+    }
+    .workspace-chip {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      padding: 9px 10px;
+      background: rgba(13, 24, 48, 0.72);
+      margin-bottom: 14px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .nav-group-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin: 10px 8px 8px;
+    }
+    .nav-link {
+      text-decoration: none;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 7px;
+      background: transparent;
+      font-size: 14px;
+    }
+    .nav-link:hover,
+    .nav-link.active {
+      color: var(--text);
+      border-color: var(--line);
+      background: rgba(18, 33, 64, 0.72);
+    }
+    .nav-badge {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 1px 8px;
+      font-size: 11px;
+    }
+    .main {
+      padding: 16px;
+    }
+    .topbar {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 10px 12px;
+      display: grid;
+      grid-template-columns: 1fr auto auto auto;
+      gap: 10px;
+      align-items: center;
+      box-shadow: var(--shadow);
+      margin-bottom: 12px;
+    }
+    .command {
+      height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(8, 16, 34, 0.88);
+      color: var(--text);
+      padding: 0 12px;
+      font-size: 13px;
+    }
+    .btn {
+      height: 38px;
+      border: none;
+      border-radius: 10px;
+      padding: 0 12px;
+      color: #fff;
+      cursor: pointer;
+      background: linear-gradient(120deg, #2264ef, #4f2fd9);
+      font-weight: 500;
+      font-size: 13px;
+    }
+    .btn.ghost {
+      border: 1px solid var(--line);
+      background: rgba(10, 19, 38, 0.78);
+      color: var(--text);
+    }
+    .env-badge {
+      border: 1px solid rgba(101, 255, 187, 0.4);
+      color: var(--ok);
+      border-radius: 999px;
+      padding: 7px 10px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+    }
+    .profile {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(10, 19, 38, 0.78);
+      padding: 7px 10px;
+      font-size: 13px;
+    }
+    .breadcrumb {
+      margin-bottom: 12px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: var(--surface-2);
+      padding: 8px 12px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .content-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: var(--gap);
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 14px;
+      box-shadow: var(--shadow);
+    }
+    .headline {
+      margin: 0 0 6px;
+      font-family: var(--font-title);
+      font-size: 27px;
+      letter-spacing: 0.02em;
+    }
+    .sub {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .status-row,
+    .token-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .status-pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      display: inline-flex;
+      width: fit-content;
+    }
+    .idle { color: var(--muted); }
+    .running { color: var(--info); border-color: rgba(139, 178, 255, 0.4); }
+    .success { color: var(--ok); border-color: rgba(101, 255, 187, 0.4); }
+    .failed { color: var(--err); border-color: rgba(255, 141, 160, 0.35); }
+    .partial { color: var(--warn); border-color: rgba(255, 206, 120, 0.45); }
+    .queued { color: #c4b7ff; border-color: rgba(196, 183, 255, 0.45); }
+    .token {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(11, 22, 44, 0.74);
+      padding: 10px;
+    }
+    .token strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 13px;
+      font-family: var(--font-title);
+    }
+    .token span {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .preview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .preview-link {
+      text-decoration: none;
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: rgba(10, 19, 38, 0.78);
+      display: block;
+    }
+    .preview-link strong {
+      display: block;
+      font-family: var(--font-title);
+      margin-bottom: 4px;
+    }
+    .preview-link span {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .preview-link:hover {
+      border-color: var(--line-strong);
+      transform: translateY(-1px);
+    }
+    .rail {
+      border-left: 1px solid var(--line);
+      background: var(--shell);
+      padding: 16px 12px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+    }
+    .rail-section {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(10, 19, 38, 0.76);
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    .rail-section h4 {
+      margin: 0 0 8px;
+      font-family: var(--font-title);
+      font-size: 14px;
+    }
+    .rail-item {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .progress {
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(143, 169, 217, 0.2);
+      overflow: hidden;
+    }
+    .progress > span {
+      display: block;
+      height: 100%;
+      background: linear-gradient(120deg, #4ff4ff, #7f7dff);
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="left-nav">
+      <div class="brand">mtools</div>
+      <div class="workspace-chip">Workspace: core-preview<br/>Mode: frontend-only mock</div>
+      <div class="nav-group-title">Global</div>
+      <a class="nav-link active" href="index.html"><span>Workspace</span><span class="nav-badge">Home</span></a>
+      <a class="nav-link" href="jira-issues.html"><span>Jira</span><span class="nav-badge">2 pages</span></a>
+      <a class="nav-link" href="sync2pod.html"><span>sync2pod</span><span class="nav-badge">Showcase</span></a>
+      <a class="nav-link" href="integrations.html"><span>Integrations</span><span class="nav-badge">Catalog</span></a>
+      <a class="nav-link" href="dashboard.html"><span>Settings</span><span class="nav-badge">Mock</span></a>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <input class="command" placeholder="Search tools, commands, projects, issue keys..." />
+        <button class="btn ghost">Quick Action</button>
+        <span class="env-badge">ENV: PREVIEW</span>
+        <div class="profile">xchen17</div>
+      </header>
+
+      <div class="breadcrumb">Workspace / Home / Integration Preview</div>
+
+      <section class="content-grid">
+        <article class="card">
+          <h1 class="headline">Frontend Integration Baseline</h1>
+          <p class="sub">This page defines shared shell and visual tokens for Jira, sync2pod, and future myscript tools.</p>
+
+          <div class="status-row" id="statusRow"></div>
+
+          <div class="token-row" id="tokenRow"></div>
+        </article>
+
+        <article class="card">
+          <h3 style="margin:0 0 8px;font-family:var(--font-title)">Preview Pages</h3>
+          <p class="sub">All pages use static mock contracts and the same app-shell pattern.</p>
+          <div class="preview-grid" id="previewLinks"></div>
+        </article>
+      </section>
+    </main>
+
+    <aside class="rail">
+      <section class="rail-section">
+        <h4>Run Logs</h4>
+        <div id="logItems"></div>
+      </section>
+      <section class="rail-section">
+        <h4>Alerts</h4>
+        <div class="rail-item"><span>Jira sync retry bucket</span><span>2</span></div>
+        <div class="rail-item"><span>sync2pod watch queue</span><span>5</span></div>
+        <div class="rail-item"><span>Schema drift warning</span><span>1</span></div>
+      </section>
+      <section class="rail-section">
+        <h4>Task Queue</h4>
+        <div class="rail-item"><span>Tool readiness check</span><span>running</span></div>
+        <div class="progress"><span style="width: 72%"></span></div>
+      </section>
+    </aside>
+  </div>
+
+  <script>
+    const statuses = [
+      { key: "idle", label: "Idle" },
+      { key: "running", label: "Running" },
+      { key: "success", label: "Success" },
+      { key: "failed", label: "Failed" },
+      { key: "partial", label: "Partial" },
+      { key: "queued", label: "Queued" }
+    ];
+
+    const tokenSamples = [
+      { title: "List-detail pattern", detail: "Shared table + drawer flow for issue-style tools." },
+      { title: "Execution panel", detail: "Run / dry-run / logs / timeline for action tools." },
+      { title: "Status badges", detail: "Unified status vocabulary and visual semantics." },
+      { title: "Progress bars", detail: "Consistent job and transfer indicators." }
+    ];
+
+    const pages = [
+      { href: "dashboard.html", title: "Dashboard", desc: "Workspace KPIs and tool state overview." },
+      { href: "jira-issues.html", title: "Jira Issues", desc: "Saved views, filters, bulk actions, detail tabs." },
+      { href: "jira-sync.html", title: "Jira Sync", desc: "Presets, dry-run deltas, timeline and error buckets." },
+      { href: "sync2pod.html", title: "sync2pod", desc: "Config, strategy, execution, watch and safety flow." },
+      { href: "integrations.html", title: "Integrations", desc: "Grouped tools and contract surface visibility." }
+    ];
+
+    const logs = [
+      { tool: "jira", status: "success", msg: "Incremental sync snapshot refreshed" },
+      { tool: "sync2pod", status: "running", msg: "Chunk upload stream simulation active" },
+      { tool: "catalog", status: "queued", msg: "myscript import scan queued" }
+    ];
+
+    document.getElementById("statusRow").innerHTML = statuses
+      .map(s => `<span class="status-pill ${s.key}">${s.label}</span>`)
+      .join("");
+
+    document.getElementById("tokenRow").innerHTML = tokenSamples
+      .map(t => `<div class="token"><strong>${t.title}</strong><span>${t.detail}</span></div>`)
+      .join("");
+
+    document.getElementById("previewLinks").innerHTML = pages
+      .map(p => `<a class="preview-link" href="${p.href}"><strong>${p.title}</strong><span>${p.desc}</span></a>`)
+      .join("");
+
+    document.getElementById("logItems").innerHTML = logs
+      .map(l => `<div class="rail-item"><span>[${l.tool}] ${l.msg}</span><span class="status-pill ${l.status}">${l.status}</span></div>`)
+      .join("");
+  </script>
+</body>
+</html>

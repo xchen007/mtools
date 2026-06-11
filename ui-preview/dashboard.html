@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>mtools | Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #060b15;
+      --shell: rgba(8, 14, 27, 0.92);
+      --surface: rgba(12, 21, 42, 0.86);
+      --line: rgba(129, 167, 255, 0.24);
+      --line-strong: rgba(139, 178, 255, 0.36);
+      --text: #dce8ff;
+      --muted: #8ea8d8;
+      --ok: #65ffbb;
+      --warn: #ffce78;
+      --err: #ff8da0;
+      --info: #8bb2ff;
+      --radius: 14px;
+      --font-title: "Space Grotesk", sans-serif;
+      --font-body: "IBM Plex Sans", sans-serif;
+      --font-mono: "IBM Plex Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font-body);
+      color: var(--text);
+      background:
+        radial-gradient(circle at 8% 0%, rgba(53, 93, 182, 0.34), transparent 32%),
+        radial-gradient(circle at 92% 12%, rgba(113, 47, 170, 0.28), transparent 36%),
+        var(--bg);
+      min-height: 100vh;
+    }
+    .app-shell { min-height: 100vh; display: grid; grid-template-columns: 236px minmax(760px, 1fr) 278px; }
+    .left-nav { border-right: 1px solid var(--line); background: var(--shell); padding: 20px 14px; position: sticky; top: 0; height: 100vh; }
+    .brand { font-family: var(--font-title); font-size: 22px; letter-spacing: .08em; margin: 2px 8px 18px; }
+    .workspace-chip { border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; background: rgba(13, 24, 48, 0.72); margin-bottom: 14px; color: var(--muted); font-size: 12px; }
+    .nav-link { text-decoration: none; color: var(--muted); display: flex; justify-content: space-between; align-items: center; border: 1px solid transparent; border-radius: 10px; padding: 10px 12px; margin-bottom: 7px; font-size: 14px; }
+    .nav-link:hover,.nav-link.active { color: var(--text); border-color: var(--line); background: rgba(18, 33, 64, 0.72); }
+    .nav-badge { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; font-size: 11px; }
+    .main { padding: 16px; }
+    .topbar { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 10px 12px; display: grid; grid-template-columns: 1fr auto auto auto; gap: 10px; align-items: center; margin-bottom: 12px; }
+    .command,.select {
+      height: 38px; border: 1px solid var(--line); border-radius: 10px;
+      background: rgba(8, 16, 34, 0.88); color: var(--text); padding: 0 12px; font-size: 13px;
+    }
+    .btn { height: 38px; border: none; border-radius: 10px; padding: 0 12px; color: #fff; cursor: pointer; background: linear-gradient(120deg, #2264ef, #4f2fd9); font-size: 13px; }
+    .env-badge { border: 1px solid rgba(101,255,187,.4); color: var(--ok); border-radius: 999px; padding: 7px 10px; font-size: 11px; font-family: var(--font-mono); }
+    .profile { border: 1px solid var(--line); border-radius: 10px; background: rgba(10, 19, 38, 0.78); padding: 7px 10px; font-size: 13px; }
+    .breadcrumb { margin-bottom: 12px; border: 1px solid var(--line); border-radius: 11px; background: rgba(15, 27, 54, 0.72); padding: 8px 12px; color: var(--muted); font-size: 12px; }
+    .content { display: grid; gap: 12px; }
+    .kpi-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+    .card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 14px; }
+    .kpi strong { display: block; font-family: var(--font-title); font-size: 26px; }
+    .kpi span { color: var(--muted); font-size: 12px; }
+    .grid-2 { display: grid; grid-template-columns: 1.4fr .8fr; gap: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; border-bottom: 1px solid rgba(145,180,247,.13); padding: 9px 6px; font-size: 13px; }
+    th { color: var(--muted); font-weight: 500; }
+    .pill { border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; font-size: 11px; }
+    .idle { color: var(--muted); }
+    .running { color: var(--info); }
+    .success { color: var(--ok); }
+    .failed { color: var(--err); }
+    .partial { color: var(--warn); }
+    .queued { color: #c4b7ff; }
+    .rail { border-left: 1px solid var(--line); background: var(--shell); padding: 16px 12px; position: sticky; top: 0; height: 100vh; }
+    .rail-box { border: 1px solid var(--line); border-radius: 12px; background: rgba(10, 19, 38, 0.76); padding: 10px; margin-bottom: 10px; }
+    .rail-box h4 { margin: 0 0 8px; font-family: var(--font-title); font-size: 14px; }
+    .rail-item { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+    .progress { height: 6px; border-radius: 999px; background: rgba(143,169,217,.2); overflow: hidden; }
+    .progress span { display: block; height: 100%; background: linear-gradient(120deg, #4ff4ff, #7f7dff); }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="left-nav">
+      <div class="brand">mtools</div>
+      <div class="workspace-chip">Workspace: core-preview<br/>Mode: frontend-only mock</div>
+      <a class="nav-link" href="index.html"><span>Workspace</span><span class="nav-badge">Home</span></a>
+      <a class="nav-link active" href="dashboard.html"><span>Jira</span><span class="nav-badge">Dashboard</span></a>
+      <a class="nav-link" href="sync2pod.html"><span>sync2pod</span><span class="nav-badge">Showcase</span></a>
+      <a class="nav-link" href="integrations.html"><span>Integrations</span><span class="nav-badge">Catalog</span></a>
+      <a class="nav-link" href="integrations.html"><span>Settings</span><span class="nav-badge">Mock</span></a>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <input class="command" placeholder="Search issues, projects, tool runs..." />
+        <button class="btn">Quick Action</button>
+        <span class="env-badge">ENV: PREVIEW</span>
+        <div class="profile">xchen17</div>
+      </header>
+
+      <div class="breadcrumb">Workspace / Jira / Dashboard</div>
+
+      <section class="content">
+        <div class="kpi-row" id="kpis"></div>
+
+        <div class="grid-2">
+          <article class="card">
+            <h3 style="margin:0 0 8px;font-family:var(--font-title)">Recent Tool Runs</h3>
+            <table>
+              <thead><tr><th>Run</th><th>Tool</th><th>Status</th><th>Started</th><th>Summary</th></tr></thead>
+              <tbody id="runs"></tbody>
+            </table>
+          </article>
+
+          <article class="card">
+            <h3 style="margin:0 0 8px;font-family:var(--font-title)">Cross-tool Health</h3>
+            <table>
+              <thead><tr><th>Tool</th><th>Queue</th><th>Latest</th></tr></thead>
+              <tbody id="health"></tbody>
+            </table>
+          </article>
+        </div>
+
+        <article class="card">
+          <h3 style="margin:0 0 8px;font-family:var(--font-title)">Issue Activity (JiraIssue mock)</h3>
+          <table>
+            <thead><tr><th>Key</th><th>Summary</th><th>Status</th><th>Assignee</th><th>Priority</th><th>Updated</th><th>Tags</th></tr></thead>
+            <tbody id="issues"></tbody>
+          </table>
+        </article>
+      </section>
+    </main>
+
+    <aside class="rail">
+      <section class="rail-box">
+        <h4>Run Logs</h4>
+        <div id="logEvents"></div>
+      </section>
+      <section class="rail-box">
+        <h4>Task Queue</h4>
+        <div class="rail-item"><span>Jira dry-run diff</span><span>queued</span></div>
+        <div class="rail-item"><span>sync2pod watch flush</span><span>running</span></div>
+        <div class="progress"><span style="width: 61%"></span></div>
+      </section>
+    </aside>
+  </div>
+
+  <script>
+    const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+    const pick = (arr) => arr[rand(0, arr.length - 1)];
+    const projects = ["TESS", "SDSTOR", "OPS", "MOPS", "CORE"];
+    const statuses = ["idle", "running", "success", "failed", "partial", "queued"];
+
+    const toolRuns = Array.from({ length: 7 }).map((_, i) => ({
+      id: `run-${2000 + i}`,
+      toolKey: pick(["jira", "sync2pod", "catalog"]),
+      status: pick(statuses),
+      startedAt: `${rand(1, 59)}m ago`,
+      endedAt: `${rand(0, 20)}m ago`,
+      summary: pick(["delta reconciled", "partial sync with retries", "watch queue drained", "schema snapshot updated"])
+    }));
+
+    const jiraIssues = Array.from({ length: 9 }).map(() => ({
+      key: `${pick(projects)}-${rand(100, 999)}`,
+      summary: pick(["Refine shell tokens", "Add dry-run preview", "Patch stale issue marker", "Improve run timeline", "Sync state badge alignment"]),
+      status: pick(["Open", "In Progress", "Review", "Blocked", "Done"]),
+      assignee: pick(["xchen17", "amy", "liyu", "ravi"]),
+      priority: pick(["Highest", "High", "Medium", "Low"]),
+      updatedAt: `${rand(2, 23)}h ago`,
+      tags: [pick(["sync", "jira", "ux", "mock"]), pick(["beta", "needs-review", "blocking", "ready"])]
+    }));
+
+    const logEvents = Array.from({ length: 5 }).map(() => ({
+      ts: `${rand(10, 59)}:${String(rand(10, 59)).padStart(2, "0")}`,
+      level: pick(["INFO", "WARN", "ERROR"]),
+      channel: pick(["jira.sync", "sync2pod.exec", "integration.scan"]),
+      message: pick(["progress event emitted", "queued run promoted", "dry-run diff generated", "retry bucket updated"]),
+      progress: rand(12, 96)
+    }));
+
+    const kpis = [
+      { label: "Open Issues", value: rand(60, 180) },
+      { label: "Running Jobs", value: rand(2, 12) },
+      { label: "Queued Jobs", value: rand(4, 20) },
+      { label: "Failed (24h)", value: rand(1, 8) },
+      { label: "Success Rate", value: `${rand(88, 99)}%` }
+    ];
+
+    document.getElementById("kpis").innerHTML = kpis
+      .map(k => `<article class="card kpi"><strong>${k.value}</strong><span>${k.label}</span></article>`)
+      .join("");
+
+    document.getElementById("runs").innerHTML = toolRuns
+      .map(r => `<tr><td>${r.id}</td><td>${r.toolKey}</td><td><span class="pill ${r.status}">${r.status}</span></td><td>${r.startedAt}</td><td>${r.summary}</td></tr>`)
+      .join("");
+
+    document.getElementById("health").innerHTML = ["jira", "sync2pod", "integrations"].map(tool => {
+      const st = pick(statuses);
+      return `<tr><td>${tool}</td><td>${rand(0, 9)}</td><td><span class="pill ${st}">${st}</span></td></tr>`;
+    }).join("");
+
+    document.getElementById("issues").innerHTML = jiraIssues
+      .map(i => `<tr><td>${i.key}</td><td>${i.summary}</td><td>${i.status}</td><td>${i.assignee}</td><td>${i.priority}</td><td>${i.updatedAt}</td><td>${i.tags.join(", ")}</td></tr>`)
+      .join("");
+
+    document.getElementById("logEvents").innerHTML = logEvents
+      .map(e => `<div class="rail-item"><span>${e.ts} [${e.level}] ${e.channel}: ${e.message}</span><span>${e.progress}%</span></div>`)
+      .join("");
+  </script>
+</body>
+</html>

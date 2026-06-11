@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>mtools | sync2pod Showcase</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#060b15; --shell:rgba(8,14,27,.92); --surface:rgba(12,21,42,.86); --line:rgba(129,167,255,.24); --text:#dce8ff; --muted:#8ea8d8; --ok:#65ffbb; --warn:#ffce78; --err:#ff8da0; --info:#8bb2ff; --radius:14px; --font-title:"Space Grotesk",sans-serif; --font-body:"IBM Plex Sans",sans-serif; --font-mono:"IBM Plex Mono",monospace; }
+    *{box-sizing:border-box} body{margin:0;font-family:var(--font-body);color:var(--text);background:radial-gradient(circle at 8% 0%, rgba(53,93,182,.34), transparent 32%),radial-gradient(circle at 92% 12%, rgba(113,47,170,.28), transparent 36%),var(--bg);min-height:100vh}
+    .app-shell{min-height:100vh;display:grid;grid-template-columns:236px minmax(1080px,1fr) 278px}
+    .left-nav{border-right:1px solid var(--line);background:var(--shell);padding:20px 14px;position:sticky;top:0;height:100vh}.brand{font-family:var(--font-title);font-size:22px;letter-spacing:.08em;margin:2px 8px 18px}.workspace-chip{border:1px solid var(--line);border-radius:10px;padding:9px 10px;background:rgba(13,24,48,.72);margin-bottom:14px;color:var(--muted);font-size:12px}
+    .nav-link{text-decoration:none;color:var(--muted);display:flex;justify-content:space-between;align-items:center;border:1px solid transparent;border-radius:10px;padding:10px 12px;margin-bottom:7px;font-size:14px}.nav-link:hover,.nav-link.active{color:var(--text);border-color:var(--line);background:rgba(18,33,64,.72)}.nav-badge{border:1px solid var(--line);border-radius:999px;padding:1px 8px;font-size:11px}
+    .main{padding:16px}.topbar{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:10px 12px;display:grid;grid-template-columns:1fr auto auto auto;gap:10px;align-items:center;margin-bottom:12px}
+    .input,.select{height:38px;border:1px solid var(--line);border-radius:10px;background:rgba(8,16,34,.88);color:var(--text);padding:0 12px;font-size:13px}.btn{height:38px;border:none;border-radius:10px;padding:0 12px;color:#fff;cursor:pointer;background:linear-gradient(120deg,#2264ef,#4f2fd9);font-size:13px}.btn.ghost{border:1px solid var(--line);background:rgba(10,19,38,.78);color:var(--text)}.btn.warn{background:linear-gradient(120deg,#8b4200,#af1d3b)}
+    .env{border:1px solid rgba(101,255,187,.4);color:var(--ok);border-radius:999px;padding:7px 10px;font-size:11px;font-family:var(--font-mono)}.profile{border:1px solid var(--line);border-radius:10px;background:rgba(10,19,38,.78);padding:7px 10px;font-size:13px}
+    .breadcrumb{margin-bottom:12px;border:1px solid var(--line);border-radius:11px;background:rgba(15,27,54,.72);padding:8px 12px;color:var(--muted);font-size:12px}
+    .panel{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:12px;margin-bottom:12px}
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.stack{display:grid;gap:8px}
+    .list{border:1px solid var(--line);border-radius:10px;background:rgba(10,19,38,.72);padding:8px}.item{padding:8px;border-bottom:1px solid rgba(145,180,247,.13);font-size:12px;color:var(--muted)}.item:last-child{border-bottom:none}.item.active{color:var(--text)}
+    .kv{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .status{border:1px solid var(--line);border-radius:999px;padding:4px 9px;font-size:11px}.ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--err)}.info{color:var(--info)}
+    .console{height:180px;overflow:auto;background:rgba(6,12,24,.94);border:1px solid var(--line);border-radius:10px;padding:8px;font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+    .metric{border:1px solid var(--line);border-radius:10px;padding:8px;background:rgba(10,19,38,.72)}.metric strong{display:block;font-size:20px;font-family:var(--font-title)}.metric span{font-size:12px;color:var(--muted)}
+    .progress{height:8px;border-radius:999px;background:rgba(143,169,217,.2);overflow:hidden}.progress span{display:block;height:100%;background:linear-gradient(120deg,#4ff4ff,#7f7dff)}
+    table{width:100%;border-collapse:collapse}th,td{text-align:left;border-bottom:1px solid rgba(145,180,247,.13);padding:9px 6px;font-size:13px}th{color:var(--muted);font-weight:500}
+    .chip{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:4px 9px;margin:0 6px 6px 0;font-size:12px;color:var(--muted)}
+    .rail{border-left:1px solid var(--line);background:var(--shell);padding:16px 12px;position:sticky;top:0;height:100vh}.rail-box{border:1px solid var(--line);border-radius:12px;background:rgba(10,19,38,.76);padding:10px;margin-bottom:10px}.rail-box h4{margin:0 0 8px;font-family:var(--font-title);font-size:14px}.rail-item{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px}
+  </style>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="left-nav">
+    <div class="brand">mtools</div>
+    <div class="workspace-chip">Workspace: core-preview<br/>Mode: frontend-only mock</div>
+    <a class="nav-link" href="index.html"><span>Workspace</span><span class="nav-badge">Home</span></a>
+    <a class="nav-link" href="jira-issues.html"><span>Jira</span><span class="nav-badge">Issues</span></a>
+    <a class="nav-link active" href="sync2pod.html"><span>sync2pod</span><span class="nav-badge">Showcase</span></a>
+    <a class="nav-link" href="integrations.html"><span>Integrations</span><span class="nav-badge">Catalog</span></a>
+    <a class="nav-link" href="dashboard.html"><span>Settings</span><span class="nav-badge">Mock</span></a>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <input class="input" placeholder="Search config, pod, path, session id..." />
+      <button class="btn ghost">Quick Action</button>
+      <span class="env">ENV: PREVIEW</span>
+      <div class="profile">xchen17</div>
+    </header>
+
+    <div class="breadcrumb">Workspace / sync2pod / Showcase</div>
+
+    <section class="panel">
+      <h3 style="margin:0 0 8px;font-family:var(--font-title)">Project Configuration Manager</h3>
+      <div class="grid-2">
+        <div class="list" id="configList"></div>
+        <div class="stack">
+          <div class="kv">
+            <input class="input" placeholder="localPath" value="/Users/xchen17/workspace/mtools" />
+            <input class="input" placeholder="pod/container" value="dev-pod-7 / app" />
+            <input class="input" placeholder="remotePath" value="/workspace/mtools" />
+            <select class="select"><option>mode flags: incremental + archive</option><option>full-sync only</option></select>
+            <input class="input" placeholder="exclude patterns" value=".git,node_modules,*.tmp" />
+            <select class="select"><option>save profile: default</option><option>safe-mode</option></select>
+          </div>
+          <div style="display:flex;gap:8px"><button class="btn">Save</button><button class="btn ghost">Load</button><button class="btn ghost">Add Config</button><button class="btn ghost">Edit</button></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3 style="margin:0 0 8px;font-family:var(--font-title)">Sync Strategy Panel</h3>
+      <div class="grid-3">
+        <div class="metric"><strong>Incremental</strong><span>Default strategy</span></div>
+        <div class="metric"><strong>Force Full</strong><span>Manual override</span></div>
+        <div class="metric"><strong>Dry-run</strong><span>Enabled</span></div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+        <span class="status info">Capability check: kubectl cp available</span>
+        <span class="status ok">Prune extra remote files: on</span>
+        <span class="status warn">Force full sync: off</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3 style="margin:0 0 8px;font-family:var(--font-title)">Execution Console</h3>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn">Start Sync</button><button class="btn warn">Cancel</button></div>
+      <div class="grid-3" id="sessionStats"></div>
+      <div class="console" id="console"></div>
+      <div id="summary" style="margin-top:8px;font-size:13px;color:var(--muted)"></div>
+    </section>
+
+    <div class="grid-2">
+      <section class="panel">
+        <h3 style="margin:0 0 8px;font-family:var(--font-title)">Watch Mode</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <span class="status ok">Watch mode: enabled</span>
+          <span class="status info">Debounce: 1200ms</span>
+          <span class="status">Last trigger: file changed</span>
+        </div>
+        <table>
+          <thead><tr><th>Queued At</th><th>Reason</th><th>Status</th></tr></thead>
+          <tbody id="watchQueue"></tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <h3 style="margin:0 0 8px;font-family:var(--font-title)">Archive / Chunk Upload Insights</h3>
+        <div id="archiveSteps" style="font-size:13px;color:var(--muted)"></div>
+        <div style="margin-top:8px" class="progress"><span id="chunkProgress" style="width:0%"></span></div>
+        <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:12px;color:var(--muted)"><span id="throughput"></span><span id="eta"></span></div>
+      </section>
+    </div>
+
+    <div class="grid-2" style="margin-top:12px">
+      <section class="panel">
+        <h3 style="margin:0 0 8px;font-family:var(--font-title)">Exclusion & Skip Preview</h3>
+        <div id="chips"></div>
+        <div id="skipPreview" style="font-size:12px;color:var(--muted)"></div>
+      </section>
+
+      <section class="panel">
+        <h3 style="margin:0 0 8px;font-family:var(--font-title)">Safety / Validation Strip</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap" id="safety"></div>
+      </section>
+    </div>
+  </main>
+
+  <aside class="rail">
+    <section class="rail-box"><h4>Run Logs</h4><div id="logs"></div></section>
+    <section class="rail-box"><h4>Task Queue</h4><div class="rail-item"><span>watch debounce flush</span><span>queued</span></div><div class="rail-item"><span>archive finalize</span><span>running</span></div></section>
+  </aside>
+</div>
+
+<script>
+  const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+  const pick = arr => arr[rand(0, arr.length - 1)];
+
+  const syncProjectConfigs = [
+    { id: "cfg-101", name: "mtools-dev", localPath: "/Users/xchen17/workspace/mtools", remoteTarget: "dev-pod-7", remotePath: "/workspace/mtools", excludePatterns: [".git", "node_modules", "*.tmp"], options: { dryRun: true, prune: true } },
+    { id: "cfg-102", name: "api-hotfix", localPath: "/Users/xchen17/workspace/api", remoteTarget: "staging-pod-2", remotePath: "/workspace/api", excludePatterns: [".venv", "dist"], options: { dryRun: false, prune: false } },
+    { id: "cfg-103", name: "agent-playground", localPath: "/Users/xchen17/workspace/myscript", remoteTarget: "tool-pod-3", remotePath: "/workspace/myscript", excludePatterns: [".cache", "coverage"], options: { dryRun: true, prune: true } }
+  ];
+
+  const syncSessionStats = { total: rand(120, 280), uploaded: rand(80, 140), skipped: rand(20, 80), removed: rand(2, 20), failed: rand(0, 6) };
+
+  const logEvents = Array.from({ length: 10 }).map((_, i) => ({
+    ts: `${rand(10, 59)}:${String(rand(10, 59)).padStart(2, "0")}`,
+    level: pick(["INFO", "WARN", "ERROR"]),
+    channel: "sync2pod.exec",
+    message: pick([
+      "__SYNC2POD_PROGRESS__ archive build 45%",
+      "__SYNC2POD_PROGRESS__ chunk upload 72%",
+      "watch event queued for src/app.py",
+      "remote extraction step started",
+      "prune remote stale file candidate"
+    ]),
+    progress: rand(10, 100)
+  }));
+
+  const toolRuns = Array.from({ length: 6 }).map((_, i) => ({
+    id: `sp-${630 + i}`,
+    toolKey: "sync2pod",
+    status: pick(["running", "success", "partial", "failed", "queued"]),
+    startedAt: `${rand(1, 40)}m ago`,
+    endedAt: `${rand(0, 39)}m ago`,
+    summary: pick(["incremental sync", "force full sync", "dry-run only", "watch-triggered sync"])
+  }));
+
+  document.getElementById("configList").innerHTML = syncProjectConfigs
+    .map((c, i) => `<div class="item ${i === 0 ? "active" : ""}"><strong>${c.name}</strong><br/>${c.localPath}<br/>→ ${c.remoteTarget}:${c.remotePath}</div>`)
+    .join("");
+
+  document.getElementById("sessionStats").innerHTML = Object.entries(syncSessionStats)
+    .map(([k, v]) => `<div class="metric"><strong>${v}</strong><span>${k}</span></div>`)
+    .join("");
+
+  document.getElementById("console").innerHTML = logEvents
+    .map(e => `${e.ts} [${e.level}] ${e.channel} ${e.message}`)
+    .join("<br/>");
+
+  document.getElementById("summary").innerHTML = `End-state summary: <strong class="${syncSessionStats.failed > 0 ? "warn" : "ok"}">${syncSessionStats.failed > 0 ? "partial" : "done"}</strong> (mock).`;
+
+  document.getElementById("watchQueue").innerHTML = Array.from({ length: 5 }).map(() => {
+    const reason = pick(["file changed", "manual trigger"]);
+    const status = pick(["queued", "running", "success"]);
+    return `<tr><td>${rand(1, 48)}s ago</td><td>${reason}</td><td>${status}</td></tr>`;
+  }).join("");
+
+  const archivePct = rand(62, 96);
+  document.getElementById("archiveSteps").innerHTML = `Archive build: <strong>done</strong><br/>Chunk upload: <strong>${archivePct}%</strong><br/>Remote extraction: <strong>${pick(["pending", "running", "completed"])}</strong>`;
+  document.getElementById("chunkProgress").style.width = `${archivePct}%`;
+  document.getElementById("throughput").textContent = `Throughput: ${rand(8, 28)} MB/s`;
+  document.getElementById("eta").textContent = `ETA: ${rand(8, 45)}s`;
+
+  const patterns = [".git", "node_modules", "*.tmp", "*.swp", "__pycache__", ".DS_Store"];
+  document.getElementById("chips").innerHTML = patterns.map(p => `<span class="chip">${p}</span>`).join("");
+  document.getElementById("skipPreview").innerHTML = `Effective skip list preview: ${pick(["143", "188", "205"])} entries excluded. Hidden/temp files are skipped by policy unless explicitly included.`;
+
+  document.getElementById("safety").innerHTML = [
+    ["Path validation", "ok"],
+    ["Remote write permission", pick(["ok", "warn"])],
+    ["Conflict policy", "last-write-wins"],
+    ["Capability check", "kubectl cp ready"]
+  ].map(([k, v]) => `<span class="status ${v === "ok" ? "ok" : v === "warn" ? "warn" : "info"}">${k}: ${v}</span>`).join("");
+
+  document.getElementById("logs").innerHTML = toolRuns
+    .map(r => `<div class="rail-item"><span>${r.id} ${r.summary}</span><span>${r.status}</span></div>`)
+    .join("");
+</script>
+</body>
+</html>

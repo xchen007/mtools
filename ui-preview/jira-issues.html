@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>mtools | Jira Issues</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#060b15; --shell:rgba(8,14,27,.92); --surface:rgba(12,21,42,.86); --line:rgba(129,167,255,.24); --text:#dce8ff; --muted:#8ea8d8; --ok:#65ffbb; --warn:#ffce78; --err:#ff8da0; --info:#8bb2ff; --radius:14px; --font-title:"Space Grotesk",sans-serif; --font-body:"IBM Plex Sans",sans-serif; --font-mono:"IBM Plex Mono",monospace; }
+    *{box-sizing:border-box} body{margin:0;font-family:var(--font-body);color:var(--text);background:radial-gradient(circle at 8% 0%, rgba(53,93,182,.34), transparent 32%),radial-gradient(circle at 92% 12%, rgba(113,47,170,.28), transparent 36%),var(--bg);min-height:100vh}
+    .app-shell{min-height:100vh;display:grid;grid-template-columns:236px minmax(940px,1fr) 278px}
+    .left-nav{border-right:1px solid var(--line);background:var(--shell);padding:20px 14px;position:sticky;top:0;height:100vh}.brand{font-family:var(--font-title);font-size:22px;letter-spacing:.08em;margin:2px 8px 18px}.workspace-chip{border:1px solid var(--line);border-radius:10px;padding:9px 10px;background:rgba(13,24,48,.72);margin-bottom:14px;color:var(--muted);font-size:12px}
+    .nav-link{text-decoration:none;color:var(--muted);display:flex;justify-content:space-between;align-items:center;border:1px solid transparent;border-radius:10px;padding:10px 12px;margin-bottom:7px;font-size:14px}.nav-link:hover,.nav-link.active{color:var(--text);border-color:var(--line);background:rgba(18,33,64,.72)} .nav-badge{border:1px solid var(--line);border-radius:999px;padding:1px 8px;font-size:11px}
+    .main{padding:16px}.topbar{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:10px 12px;display:grid;grid-template-columns:1fr auto auto auto;gap:10px;align-items:center;margin-bottom:12px}
+    .input,.select{height:38px;border:1px solid var(--line);border-radius:10px;background:rgba(8,16,34,.88);color:var(--text);padding:0 12px;font-size:13px}.btn{height:38px;border:none;border-radius:10px;padding:0 12px;color:#fff;cursor:pointer;background:linear-gradient(120deg,#2264ef,#4f2fd9);font-size:13px}.btn.ghost{border:1px solid var(--line);background:rgba(10,19,38,.78);color:var(--text)}
+    .env{border:1px solid rgba(101,255,187,.4);color:var(--ok);border-radius:999px;padding:7px 10px;font-size:11px;font-family:var(--font-mono)} .profile{border:1px solid var(--line);border-radius:10px;background:rgba(10,19,38,.78);padding:7px 10px;font-size:13px}
+    .breadcrumb{margin-bottom:12px;border:1px solid var(--line);border-radius:11px;background:rgba(15,27,54,.72);padding:8px 12px;color:var(--muted);font-size:12px}
+    .panel{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:12px;margin-bottom:12px}
+    .saved-views{display:flex;gap:8px;flex-wrap:wrap}.chip{border:1px solid var(--line);border-radius:999px;padding:5px 10px;background:rgba(10,19,38,.72);font-size:12px;color:var(--muted);cursor:pointer}.chip.active{color:var(--text);border-color:rgba(139,178,255,.4)}
+    .filters{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:8px;margin-top:10px}.bulk{display:flex;gap:8px;margin-top:10px;align-items:center}
+    .layout{display:grid;grid-template-columns:1fr 290px;gap:12px}
+    table{width:100%;border-collapse:collapse}th,td{text-align:left;border-bottom:1px solid rgba(145,180,247,.13);padding:9px 6px;font-size:13px}th{color:var(--muted);font-weight:500}td:first-child{font-family:var(--font-mono);color:#58f4ff}
+    .badge{border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:11px}.kpi li{display:flex;justify-content:space-between;margin-bottom:7px;color:var(--muted);font-size:12px}
+    .tabs{display:flex;gap:8px;margin:10px 0}.tab{border:1px solid var(--line);border-radius:8px;padding:5px 9px;font-size:12px;color:var(--muted)}.tab.active{color:var(--text)}
+    .drawer{border:1px solid var(--line);border-radius:10px;background:rgba(10,19,38,.72);padding:10px;font-size:12px;color:var(--muted)}
+    .rail{border-left:1px solid var(--line);background:var(--shell);padding:16px 12px;position:sticky;top:0;height:100vh}.rail-box{border:1px solid var(--line);border-radius:12px;background:rgba(10,19,38,.76);padding:10px;margin-bottom:10px}.rail-box h4{margin:0 0 8px;font-family:var(--font-title);font-size:14px}.rail-item{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px}
+  </style>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="left-nav">
+    <div class="brand">mtools</div>
+    <div class="workspace-chip">Workspace: core-preview<br/>Mode: frontend-only mock</div>
+    <a class="nav-link" href="index.html"><span>Workspace</span><span class="nav-badge">Home</span></a>
+    <a class="nav-link active" href="jira-issues.html"><span>Jira</span><span class="nav-badge">Issues</span></a>
+    <a class="nav-link" href="sync2pod.html"><span>sync2pod</span><span class="nav-badge">Showcase</span></a>
+    <a class="nav-link" href="integrations.html"><span>Integrations</span><span class="nav-badge">Catalog</span></a>
+    <a class="nav-link" href="dashboard.html"><span>Settings</span><span class="nav-badge">Mock</span></a>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <input class="input" placeholder="Search issue key, summary, assignee..." />
+      <button class="btn ghost">Quick Action</button>
+      <span class="env">ENV: PREVIEW</span>
+      <div class="profile">xchen17</div>
+    </header>
+
+    <div class="breadcrumb">Workspace / Jira / Issues</div>
+
+    <section class="panel">
+      <div class="saved-views" id="savedViews"></div>
+      <div class="filters">
+        <select class="select"><option>Project: All</option><option>TESS</option><option>SDSTOR</option></select>
+        <select class="select"><option>Sprint: Current</option><option>Sprint 52</option><option>Sprint 51</option></select>
+        <select class="select"><option>Assignee: Any</option><option>xchen17</option><option>team</option></select>
+        <select class="select"><option>Priority: Any</option><option>Highest</option><option>High</option></select>
+        <select class="select"><option>Date: Last 14d</option><option>Last 7d</option><option>Last 30d</option></select>
+        <input class="input" placeholder="Label / text filter" />
+      </div>
+      <div class="bulk">
+        <strong style="font-size:13px">Bulk action (visual only):</strong>
+        <button class="btn">Assign</button>
+        <button class="btn ghost">Add label</button>
+        <button class="btn ghost">Transition</button>
+      </div>
+    </section>
+
+    <div class="layout">
+      <section class="panel">
+        <table>
+          <thead><tr><th>Issue</th><th>Summary</th><th>Status</th><th>Assignee</th><th>Priority</th><th>Updated</th><th>Tags</th></tr></thead>
+          <tbody id="issueRows"></tbody>
+        </table>
+        <div style="margin-top:8px;color:var(--muted);font-size:12px" id="total"></div>
+
+        <div class="tabs">
+          <span class="tab active">Overview</span>
+          <span class="tab">History</span>
+          <span class="tab">Links</span>
+          <span class="tab">Raw payload</span>
+        </div>
+        <div class="drawer" id="drawer"></div>
+      </section>
+
+      <aside class="panel">
+        <h3 style="margin:0 0 8px;font-family:var(--font-title)">KPI Strip</h3>
+        <ul class="kpi" id="kpis" style="list-style:none;padding:0;margin:0"></ul>
+      </aside>
+    </div>
+  </main>
+
+  <aside class="rail">
+    <section class="rail-box"><h4>Run Logs</h4><div id="logs"></div></section>
+    <section class="rail-box"><h4>Task Queue</h4><div class="rail-item"><span>Transition batch</span><span>queued</span></div><div class="rail-item"><span>Label sync</span><span>running</span></div></section>
+  </aside>
+</div>
+
+<script>
+  const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+  const pick = arr => arr[rand(0, arr.length - 1)];
+
+  const savedViews = ["Mine", "Team", "Blocked", "Due Soon"];
+  const statuses = ["Open", "In Progress", "Review", "Blocked", "Done"];
+  const priorities = ["Highest", "High", "Medium", "Low"];
+  const people = ["xchen17", "amy", "ravi", "liyu", "jason"];
+  const tags = ["sync", "ux", "api", "ops", "critical", "beta"];
+  const projects = ["TESS", "SDSTOR", "OPS", "MOPS"];
+
+  const jiraIssues = Array.from({ length: 18 }).map(() => ({
+    key: `${pick(projects)}-${rand(100, 999)}`,
+    summary: pick(["Refine saved-view state", "Fix stale issue badge", "Add sync delta drawer", "Tune sprint filter combos", "Patch bulk action toolbar"]),
+    status: pick(statuses),
+    assignee: pick(people),
+    priority: pick(priorities),
+    updatedAt: `${rand(1, 23)}h ${rand(1, 59)}m ago`,
+    tags: [pick(tags), pick(tags)]
+  }));
+
+  const logEvents = Array.from({ length: 4 }).map(() => ({
+    ts: `${rand(10, 59)}:${String(rand(10, 59)).padStart(2, "0")}`,
+    level: pick(["INFO", "WARN"]),
+    channel: "jira.issues",
+    message: pick(["saved view switched", "bulk action simulated", "drawer tab changed", "filter matrix recalculated"])
+  }));
+
+  document.getElementById("savedViews").innerHTML = savedViews
+    .map((v, i) => `<span class="chip ${i === 0 ? "active" : ""}">${v}</span>`)
+    .join("");
+
+  document.getElementById("issueRows").innerHTML = jiraIssues
+    .map(i => `<tr><td>${i.key}</td><td>${i.summary}</td><td>${i.status}</td><td>${i.assignee}</td><td>${i.priority}</td><td>${i.updatedAt}</td><td>${i.tags.join(", ")}</td></tr>`)
+    .join("");
+
+  document.getElementById("total").textContent = `Total ${jiraIssues.length} issues (JiraIssue mock contract)`;
+
+  const stale = jiraIssues.filter(i => i.updatedAt.includes("23h") || i.updatedAt.includes("22h")).length;
+  const overdue = rand(2, 8);
+  const blocked = jiraIssues.filter(i => i.status === "Blocked").length;
+  const done = jiraIssues.filter(i => i.status === "Done").length;
+  document.getElementById("kpis").innerHTML = [
+    ["By status (Done)", done],
+    ["Blocked", blocked],
+    ["Overdue", overdue],
+    ["Stale > N days", stale],
+    ["Unassigned", rand(1, 6)]
+  ].map(([k, v]) => `<li><span>${k}</span><strong>${v}</strong></li>`).join("");
+
+  document.getElementById("drawer").innerHTML = `Selected issue: <strong>${jiraIssues[0].key}</strong><br/>Overview shows summary and assignee, History tab would show transitions, Links tab would show related artifacts, Raw payload tab would show mock JSON payload.`;
+
+  document.getElementById("logs").innerHTML = logEvents
+    .map(e => `<div class="rail-item"><span>${e.ts} [${e.level}] ${e.message}</span><span>${e.channel}</span></div>`)
+    .join("");
+</script>
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>mtools | Integrations</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#060b15; --shell:rgba(8,14,27,.92); --surface:rgba(12,21,42,.86); --line:rgba(129,167,255,.24); --text:#dce8ff; --muted:#8ea8d8; --ok:#65ffbb; --warn:#ffce78; --err:#ff8da0; --info:#8bb2ff; --radius:14px; --font-title:"Space Grotesk",sans-serif; --font-body:"IBM Plex Sans",sans-serif; --font-mono:"IBM Plex Mono",monospace; }
+    *{box-sizing:border-box} body{margin:0;font-family:var(--font-body);color:var(--text);background:radial-gradient(circle at 8% 0%, rgba(53,93,182,.34), transparent 32%),radial-gradient(circle at 92% 12%, rgba(113,47,170,.28), transparent 36%),var(--bg);min-height:100vh}
+    .app-shell{min-height:100vh;display:grid;grid-template-columns:236px minmax(980px,1fr) 278px}
+    .left-nav{border-right:1px solid var(--line);background:var(--shell);padding:20px 14px;position:sticky;top:0;height:100vh}.brand{font-family:var(--font-title);font-size:22px;letter-spacing:.08em;margin:2px 8px 18px}.workspace-chip{border:1px solid var(--line);border-radius:10px;padding:9px 10px;background:rgba(13,24,48,.72);margin-bottom:14px;color:var(--muted);font-size:12px}
+    .nav-link{text-decoration:none;color:var(--muted);display:flex;justify-content:space-between;align-items:center;border:1px solid transparent;border-radius:10px;padding:10px 12px;margin-bottom:7px;font-size:14px}.nav-link:hover,.nav-link.active{color:var(--text);border-color:var(--line);background:rgba(18,33,64,.72)}.nav-badge{border:1px solid var(--line);border-radius:999px;padding:1px 8px;font-size:11px}
+    .main{padding:16px}.topbar{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:10px 12px;display:grid;grid-template-columns:1fr auto auto auto;gap:10px;align-items:center;margin-bottom:12px}
+    .input{height:38px;border:1px solid var(--line);border-radius:10px;background:rgba(8,16,34,.88);color:var(--text);padding:0 12px;font-size:13px}.btn{height:38px;border:none;border-radius:10px;padding:0 12px;color:#fff;cursor:pointer;background:linear-gradient(120deg,#2264ef,#4f2fd9);font-size:13px}.btn.ghost{border:1px solid var(--line);background:rgba(10,19,38,.78);color:var(--text)}.env{border:1px solid rgba(101,255,187,.4);color:var(--ok);border-radius:999px;padding:7px 10px;font-size:11px;font-family:var(--font-mono)}.profile{border:1px solid var(--line);border-radius:10px;background:rgba(10,19,38,.78);padding:7px 10px;font-size:13px}
+    .breadcrumb{margin-bottom:12px;border:1px solid var(--line);border-radius:11px;background:rgba(15,27,54,.72);padding:8px 12px;color:var(--muted);font-size:12px}
+    .panel{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:12px;margin-bottom:12px}
+    .group{margin-bottom:10px}.group h4{margin:0 0 8px;font-family:var(--font-title);font-size:15px}
+    .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.card{border:1px solid var(--line);border-radius:10px;background:rgba(10,19,38,.74);padding:10px}
+    .title{display:flex;justify-content:space-between;align-items:center;font-size:14px}.badge{border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:11px}.ready{color:var(--ok)}.beta{color:var(--warn)}.planned{color:#c4b7ff}
+    .contracts{margin-top:8px;font-size:12px;color:var(--muted)}.contracts span{display:inline-block;margin-right:8px}
+    table{width:100%;border-collapse:collapse;margin-top:8px}th,td{text-align:left;border-bottom:1px solid rgba(145,180,247,.13);padding:9px 6px;font-size:13px}th{color:var(--muted);font-weight:500}
+    .rail{border-left:1px solid var(--line);background:var(--shell);padding:16px 12px;position:sticky;top:0;height:100vh}.rail-box{border:1px solid var(--line);border-radius:12px;background:rgba(10,19,38,.76);padding:10px;margin-bottom:10px}.rail-box h4{margin:0 0 8px;font-family:var(--font-title);font-size:14px}.rail-item{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px}
+  </style>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="left-nav">
+    <div class="brand">mtools</div>
+    <div class="workspace-chip">Workspace: core-preview<br/>Mode: frontend-only mock</div>
+    <a class="nav-link" href="index.html"><span>Workspace</span><span class="nav-badge">Home</span></a>
+    <a class="nav-link" href="jira-issues.html"><span>Jira</span><span class="nav-badge">Issues</span></a>
+    <a class="nav-link" href="sync2pod.html"><span>sync2pod</span><span class="nav-badge">Showcase</span></a>
+    <a class="nav-link active" href="integrations.html"><span>Integrations</span><span class="nav-badge">Catalog</span></a>
+    <a class="nav-link" href="dashboard.html"><span>Settings</span><span class="nav-badge">Mock</span></a>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <input class="input" placeholder="Search tool key, contract, status..." />
+      <button class="btn ghost">Quick Action</button>
+      <span class="env">ENV: PREVIEW</span>
+      <div class="profile">xchen17</div>
+    </header>
+
+    <div class="breadcrumb">Workspace / Integrations / Catalog</div>
+
+    <section class="panel">
+      <h3 style="margin:0 0 8px;font-family:var(--font-title)">Tool Catalog by Type</h3>
+      <div id="groups"></div>
+    </section>
+
+    <section class="panel">
+      <h3 style="margin:0 0 8px;font-family:var(--font-title)">Contract Surface Matrix</h3>
+      <table>
+        <thead><tr><th>Tool</th><th>Input schema</th><th>Output schema</th><th>Event stream</th><th>Readiness</th></tr></thead>
+        <tbody id="matrix"></tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h3 style="margin:0 0 8px;font-family:var(--font-title)">Add from myscript (Placeholder Flow)</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div class="card"><strong>1. Detect Script</strong><p style="margin:6px 0 0;color:var(--muted);font-size:12px">Scan /Users/xchen17/workspace/myscript for runnable modules.</p></div>
+        <div class="card"><strong>2. Bind Contract</strong><p style="margin:6px 0 0;color:var(--muted);font-size:12px">Map input/output schemas and optional event channel.</p></div>
+        <div class="card"><strong>3. Register Tool</strong><p style="margin:6px 0 0;color:var(--muted);font-size:12px">Publish card in catalog with readiness badge.</p></div>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px"><button class="btn">Start Onboarding</button><button class="btn ghost">Preview Template</button></div>
+    </section>
+  </main>
+
+  <aside class="rail">
+    <section class="rail-box"><h4>Run Logs</h4><div id="logs"></div></section>
+    <section class="rail-box"><h4>Task Queue</h4><div class="rail-item"><span>catalog refresh</span><span>queued</span></div><div class="rail-item"><span>contract extraction</span><span>running</span></div></section>
+  </aside>
+</div>
+
+<script>
+  const groups = {
+    "Issue Ops": [
+      { key: "jira-issues", name: "Jira Issues", readiness: "ready", input: true, output: true, events: true },
+      { key: "jira-sync", name: "Jira Sync", readiness: "ready", input: true, output: true, events: true }
+    ],
+    "Sync Ops": [
+      { key: "sync2pod", name: "sync2pod", readiness: "beta", input: true, output: true, events: true },
+      { key: "sync2storage", name: "sync2storage", readiness: "planned", input: false, output: false, events: false }
+    ],
+    "Utilities": [
+      { key: "run-log-export", name: "Run Log Export", readiness: "beta", input: true, output: true, events: false },
+      { key: "schema-diff", name: "Schema Diff", readiness: "planned", input: false, output: false, events: false }
+    ]
+  };
+
+  const allTools = [];
+  const readinessClass = r => (r === "ready" ? "ready" : r === "beta" ? "beta" : "planned");
+
+  document.getElementById("groups").innerHTML = Object.entries(groups).map(([group, tools]) => {
+    tools.forEach(t => allTools.push(t));
+    return `
+      <div class="group">
+        <h4>${group}</h4>
+        <div class="cards">
+          ${tools.map(t => `
+            <article class="card">
+              <div class="title">
+                <strong>${t.name}</strong>
+                <span class="badge ${readinessClass(t.readiness)}">${t.readiness}</span>
+              </div>
+              <div style="margin-top:6px;color:var(--muted);font-size:12px">Key: ${t.key}</div>
+              <div class="contracts">
+                <span>Input: ${t.input ? "yes" : "no"}</span>
+                <span>Output: ${t.output ? "yes" : "no"}</span>
+                <span>Events: ${t.events ? "yes" : "no"}</span>
+              </div>
+            </article>
+          `).join("")}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  document.getElementById("matrix").innerHTML = allTools.map(t => `
+    <tr>
+      <td>${t.name}</td>
+      <td>${t.input ? "available" : "planned"}</td>
+      <td>${t.output ? "available" : "planned"}</td>
+      <td>${t.events ? "available" : "planned"}</td>
+      <td><span class="badge ${readinessClass(t.readiness)}">${t.readiness}</span></td>
+    </tr>
+  `).join("");
+
+  document.getElementById("logs").innerHTML = [
+    ["catalog", "grouping by tool type complete"],
+    ["contract", "surface matrix regenerated"],
+    ["myscript", "onboarding placeholder ready"]
+  ].map(([c, m]) => `<div class="rail-item"><span>[${c}] ${m}</span><span>ok</span></div>`).join("");
+</script>
+</body>
+</html>
