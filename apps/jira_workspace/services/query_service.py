@@ -2,6 +2,18 @@ from django.db.models import Q
 
 from jira_workspace.models import JiraIssue
 
+VALID_SOURCES = ("all", "assigned", "created")
+VALID_SORT_FIELDS = (
+    "assignee",
+    "created_at",
+    "issue_key",
+    "priority",
+    "project_key",
+    "reporter",
+    "status",
+    "updated_at",
+)
+
 
 def build_issue_queryset(
     *,
@@ -14,6 +26,18 @@ def build_issue_queryset(
     sort_by="updated_at",
     sort_order="desc",
 ):
+    if source not in VALID_SOURCES:
+        expected_sources = ", ".join(VALID_SOURCES)
+        raise ValueError(
+            f"Invalid source '{source}'. Expected one of: {expected_sources}."
+        )
+
+    if sort_by not in VALID_SORT_FIELDS:
+        expected_sort_fields = ", ".join(VALID_SORT_FIELDS)
+        raise ValueError(
+            f"Invalid sort_by '{sort_by}'. Expected one of: {expected_sort_fields}."
+        )
+
     queryset = JiraIssue.objects.all()
 
     if source == "assigned":

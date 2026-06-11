@@ -54,6 +54,20 @@ class JiraWorkspaceQueryServiceTests(TestCase):
 
         assert list(qs.values_list("issue_key", flat=True)) == ["TESS-321", "OPS-778"]
 
+    def test_build_issue_queryset_rejects_unknown_source(self):
+        with self.assertRaisesMessage(
+            ValueError,
+            "Invalid source 'watched'. Expected one of: all, assigned, created.",
+        ):
+            build_issue_queryset(username="xchen17", source="watched")
+
+    def test_build_issue_queryset_rejects_unknown_sort_by(self):
+        with self.assertRaisesMessage(
+            ValueError,
+            "Invalid sort_by 'raw_json'. Expected one of: assignee, created_at, issue_key, priority, project_key, reporter, status, updated_at.",
+        ):
+            build_issue_queryset(username="xchen17", sort_by="raw_json")
+
     def test_build_dashboard_project_groups_separates_assigned_and_created_projects(self):
         groups = build_dashboard_project_groups(username="xchen17")
 
