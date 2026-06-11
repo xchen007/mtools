@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     'notion',
+    'jira_workspace',
     'rest_auth',
     'rest_framework.authtoken',
 ]

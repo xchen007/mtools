@@ -18,5 +18,6 @@ from django.urls import path, include
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('notion/', include('notion.urls',namespace='notion')),
+    path('jira/', include('jira_workspace.urls', namespace='jira_workspace')),
 
 ]
