@@ -1,0 +1,979 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>mtools | Jira Query</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #060b15;
+      --shell: rgba(8, 14, 27, 0.92);
+      --surface: rgba(12, 21, 42, 0.86);
+      --surface-2: rgba(15, 27, 54, 0.72);
+      --line: rgba(129, 167, 255, 0.24);
+      --text: #dce8ff;
+      --muted: #8ea8d8;
+      --ok: #65ffbb;
+      --warn: #ffce78;
+      --err: #ff8da0;
+      --info: #8bb2ff;
+      --radius: 14px;
+      --font-title: "Space Grotesk", sans-serif;
+      --font-body: "IBM Plex Sans", sans-serif;
+      --font-mono: "IBM Plex Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font-body);
+      color: var(--text);
+      background:
+        radial-gradient(circle at 8% 0%, rgba(53, 93, 182, 0.34), transparent 32%),
+        radial-gradient(circle at 92% 12%, rgba(113, 47, 170, 0.28), transparent 36%),
+        var(--bg);
+      min-height: 100vh;
+    }
+    .app-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 260px minmax(900px, 1fr);
+    }
+    .left-nav {
+      border-right: 1px solid var(--line);
+      background: var(--shell);
+      padding: 20px 14px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+    }
+    .brand {
+      font-family: var(--font-title);
+      font-size: 22px;
+      letter-spacing: 0.08em;
+      margin: 2px 8px 18px;
+    }
+    .workspace-chip {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 10px;
+      background: rgba(13, 24, 48, 0.72);
+      margin-bottom: 14px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .nav-link {
+      text-decoration: none;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 7px;
+      font-size: 14px;
+    }
+    .nav-link:hover, .nav-link.active {
+      color: var(--text);
+      border-color: var(--line);
+      background: rgba(18, 33, 64, 0.72);
+    }
+    .main {
+      padding: 16px;
+      overflow-y: auto;
+    }
+    .topbar {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 10px 12px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .input, .select {
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(8, 16, 34, 0.88);
+      color: var(--text);
+      padding: 0 12px;
+      font-size: 13px;
+    }
+    input[type="text"] {
+      flex: 1;
+      min-width: 200px;
+    }
+    .btn {
+      height: 36px;
+      border: none;
+      border-radius: 10px;
+      padding: 0 16px;
+      color: #fff;
+      cursor: pointer;
+      background: linear-gradient(120deg, #2264ef, #4f2fd9);
+      font-size: 13px;
+    }
+    .btn.ghost {
+      border: 1px solid var(--line);
+      background: rgba(10, 19, 38, 0.78);
+      color: var(--text);
+    }
+    .env-badge {
+      border: 1px solid rgba(101, 255, 187, 0.4);
+      color: var(--ok);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+    }
+    .section-title {
+      margin: 0 0 10px;
+      font-family: var(--font-title);
+      font-size: 14px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .filter-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .sort-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .status-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .status-chip {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      background: rgba(10, 19, 38, 0.72);
+      color: var(--muted);
+      transition: all 0.2s;
+    }
+    .status-chip.selected {
+      background: rgba(34, 100, 239, 0.4);
+      border-color: #2264ef;
+      color: var(--text);
+    }
+    .kebab {
+      position: relative;
+      display: inline-block;
+    }
+    .kebab-menu {
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 0;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 6px;
+      min-width: 140px;
+      z-index: 10;
+    }
+    .kebab-menu.show {
+      display: block;
+    }
+    .kebab-item {
+      padding: 8px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      border-radius: 6px;
+    }
+    .kebab-item:hover {
+      background: rgba(18, 33, 64, 0.72);
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .stat-card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(10, 19, 38, 0.72);
+      padding: 12px;
+    }
+    .stat-value {
+      font-family: var(--font-title);
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .stat-label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .stat-bar {
+      height: 4px;
+      background: rgba(143, 169, 217, 0.2);
+      border-radius: 999px;
+      margin-top: 8px;
+      overflow: hidden;
+    }
+    .stat-bar-fill {
+      height: 100%;
+      background: linear-gradient(120deg, #4ff4ff, #7f7dff);
+      transition: width 0.3s;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      text-align: left;
+      border-bottom: 1px solid rgba(145, 180, 247, 0.13);
+      padding: 10px 8px;
+      font-size: 13px;
+    }
+    th {
+      color: var(--muted);
+      font-weight: 500;
+      position: sticky;
+      top: 0;
+      background: var(--surface);
+    }
+    td:first-child {
+      font-family: var(--font-mono);
+      color: #58f4ff;
+    }
+    .hover-row:hover {
+      background: rgba(18, 33, 64, 0.5);
+    }
+    .pagination {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-top: 12px;
+    }
+    .page-info {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      border: 1px solid var(--line);
+    }
+    .status-done { background: rgba(101, 255, 187, 0.15); color: var(--ok); border-color: rgba(101, 255, 187, 0.3); }
+    .status-progress { background: rgba(139, 178, 255, 0.15); color: var(--info); border-color: rgba(139, 178, 255, 0.3); }
+    .status-blocked { background: rgba(255, 141, 160, 0.15); color: var(--err); border-color: rgba(255, 141, 160, 0.3); }
+    .status-review { background: rgba(255, 206, 120, 0.15); color: var(--warn); border-color: rgba(255, 206, 120, 0.3); }
+    .status-open { background: rgba(196, 183, 255, 0.15); color: #c4b7ff; border-color: rgba(196, 183, 255, 0.3); }
+    .priority-high { color: var(--err); }
+    .priority-medium { color: var(--warn); }
+    .priority-low { color: var(--muted); }
+
+    .side-stats {
+      position: sticky;
+      top: 0;
+    }
+    .project-bar {
+      height: 6px;
+      background: rgba(143, 169, 217, 0.2);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 6px;
+    }
+    .project-bar-fill {
+      height: 100%;
+      background: linear-gradient(120deg, #4ff4ff, #7f7dff);
+    }
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--muted);
+    }
+    .loading {
+      display: inline-block;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .detail-drawer {
+      position: fixed;
+      top: 0;
+      right: -420px;
+      width: 420px;
+      height: 100vh;
+      background: var(--shell);
+      border-left: 1px solid var(--line);
+      z-index: 100;
+      transition: right 0.3s;
+      padding: 16px;
+      overflow-y: auto;
+    }
+    .detail-drawer.open {
+      right: 0;
+    }
+    .drawer-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 99;
+      display: none;
+    }
+    .drawer-overlay.show {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="left-nav">
+      <div class="brand">mtools</div>
+      <div class="workspace-chip">Jira Query<br/>Powered by mjira</div>
+      <a class="nav-link active" href="#"><span>Issue Query</span><span></span></a>
+      <a class="nav-link" href="jira-sync.html"><span>Sync Run</span><span></span></a>
+      <a class="nav-link" href="jira-issues.html"><span>Issues View</span><span></span></a>
+      <a class="nav-link" href="sync2pod.html"><span>sync2pod</span><span></span></a>
+      <a class="nav-link" href="index.html"><span>Workspace</span><span></span></a>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <span class="env-badge">PREVIEW: MOCK DATA</span>
+        <span class="page-info" style="margin-left: auto;">Total matching: <strong id="totalCount">0</strong></span>
+      </div>
+
+      <div class="panel">
+        <h3 class="section-title">Search & Filters</h3>
+        <div class="filter-row">
+          <input class="input" type="text" id="searchInput" placeholder="Search issue key, summary..." />
+          <select class="select" id="projectSelect">
+            <option value="">All Projects</option>
+          </select>
+          <select class="select" id="assigneeSelect">
+            <option value="">All Assignees</option>
+          </select>
+          <select class="select" id="sprintSelect">
+            <option value="">All Sprints</option>
+          </select>
+        </div>
+
+        <div style="margin-bottom: 12px;">
+          <h4 style="margin: 0 0 6px; font-size: 12px; color: var(--muted);">Filter by Status</h4>
+          <div class="status-chips" id="statusChips"></div>
+        </div>
+
+        <div class="sort-row">
+          <select class="select" id="sortBy" style="width: auto;">
+            <option value="updated_at">Updated Date</option>
+            <option value="created_at">Created Date</option>
+            <option value="issue_key">Issue Key</option>
+            <option value="summary">Summary</option>
+          </select>
+          <select class="select" id="sortOrder" style="width: auto;">
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
+          </select>
+          <div class="kebab">
+            <button class="btn ghost" id="savedViewsBtn">Saved Views ▾</button>
+            <div class="kebab-menu" id="savedViewsMenu">
+              <div class="kebab-item" data-filter="my-issues">My Issues</div>
+              <div class="kebab-item" data-filter="team-issues">Team Issues</div>
+              <div class="kebab-item" data-filter="blocked">Blocked Issues</div>
+              <div class="kebab-item" data-filter="this-week">Updated This Week</div>
+            </div>
+          </div>
+          <div style="margin-left: auto;"></div>
+          <button class="btn" id="applyFilterBtn">Apply Filters</button>
+          <button class="btn ghost" id="resetFilterBtn">Reset</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="sort-row" style="margin-bottom: 12px;">
+          <span class="env-badge" id="resultBadge">0 results</span>
+          <select class="select" id="limitSelect" style="width: auto; margin-left: auto;">
+            <option value="25">25 per page</option>
+            <option value="50" selected>50 per page</option>
+            <option value="100">100 per page</option>
+          </select>
+        </div>
+
+        <div id="issueTableContainer">
+          <table>
+            <thead>
+              <tr>
+                <th>Issue</th>
+                <th>Summary</th>
+                <th>Status</th>
+                <th>Assignee</th>
+                <th>Priority</th>
+                <th>Sprint</th>
+                <th>Updated</th>
+                <th>Worklog</th>
+              </tr>
+            </thead>
+            <tbody id="issueTableBody"></tbody>
+          </table>
+        </div>
+
+        <div class="pagination" id="pagination"></div>
+      </div>
+
+      <div class="panel">
+        <h3 class="section-title">Statistics</h3>
+        <div class="stats-grid" id="statsGrid"></div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div>
+            <h4 style="margin: 0 0 8px; font-size: 12px; color: var(--muted);">Status Distribution</h4>
+            <div id="statusDistribution"></div>
+          </div>
+          <div>
+            <h4 style="margin: 0 0 8px; font-size: 12px; color: var(--muted);">Project Distribution</h4>
+            <div id="projectDistribution"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="drawer-overlay" id="drawerOverlay"></div>
+  <div class="detail-drawer" id="detailDrawer">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h3 style="margin:0; font-family:var(--font-title);">Issue Details</h3>
+      <button class="btn ghost" id="closeDrawer">✕</button>
+    </div>
+    <div id="drawerContent"></div>
+  </div>
+
+<script>
+  const projects = ["TESS", "SDSTOR", "OPS", "MOPS", "CORE", "LABS"];
+  const statuses = ["Open", "In Progress", "In Review", "Blocked", "Done", "Backlog"];
+  const priorities = ["Highest", "High", "Medium", "Low"];
+  const assignees = ["xchen17", "amy", "ravi", "liyu", "jason", "unassigned"];
+  const sprints = ["Sprint 52", "Sprint 53", "Sprint 54", "Backlog"];
+
+  let currentPage = 0;
+  let issues = [];
+  let filteredIssues = [];
+  let selectedStatuses = [];
+  let selectedProject = "";
+  let selectedAssignee = "";
+  let selectedSprint = "";
+  let searchQuery = "";
+  let pageSize = 50;
+
+  function rand(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  function pick(arr) {
+    return arr[rand(0, arr.length - 1)];
+  }
+
+  function generateMockIssues(count = 200) {
+    return Array.from({ length: count }, (_, i) => ({
+      issue_key: `${pick(projects)}-${1000 + i}`,
+      project_key: pick(projects),
+      summary: pick([
+        "Implement user authentication flow",
+        "Fix database connection timeout",
+        "Add unit tests for API endpoints",
+        "Refactor legacy codebase",
+        "Update dependencies to latest",
+        "Fix memory leak in background worker",
+        "Implement caching layer",
+        "Add logging to production",
+        "Optimize slow queries",
+        "Fix CSS layout issues",
+        "Add responsive design for mobile",
+        "Implement feature flags",
+        "Add API rate limiting",
+        "Fix security vulnerabilities",
+        "Add performance monitoring"
+      ]),
+      status: pick(statuses),
+      assignee: pick(assignees) === "unassigned" ? null : pick(assignees),
+      priority: pick(priorities),
+      sprint: pick(sprints),
+      updated_at: new Date(Date.now() - rand(0, 604800000)).toISOString(),
+      created_at: new Date(Date.now() - rand(604800000, 2592000000)).toISOString(),
+      worklog_minutes: rand(0, 480),
+      description: "This is a sample description that would normally come from Jira API...",
+      reporter: assignees[rand(0, assignees.length - 2)],
+      issue_type: pick(["Story", "Bug", "Task", "Epic"]),
+      labels: [pick(["frontend", "backend", "api", "database", "performance", "security"])]
+    }));
+  }
+
+  function renderStatusChips() {
+    const container = document.getElementById("statusChips");
+    container.innerHTML = statuses.map(status => `
+      <span class="status-chip ${selectedStatuses.includes(status) ? 'selected' : ''}" data-status="${status}">${status}</span>
+    `).join("");
+
+    container.querySelectorAll(".status-chip").forEach(chip => {
+      chip.addEventListener("click", () => {
+        const status = chip.dataset.status;
+        if (selectedStatuses.includes(status)) {
+          selectedStatuses = selectedStatuses.filter(s => s !== status);
+        } else {
+          selectedStatuses.push(status);
+        }
+        renderStatusChips();
+        applyFilters();
+      });
+    });
+  }
+
+  function renderFilters() {
+    const projectSelect = document.getElementById("projectSelect");
+    projects.forEach(p => {
+      const opt = document.createElement("option");
+      opt.value = p;
+      opt.textContent = p;
+      projectSelect.appendChild(opt);
+    });
+
+    const assigneeSelect = document.getElementById("assigneeSelect");
+    assignees.filter(a => a !== "unassigned").forEach(a => {
+      const opt = document.createElement("option");
+      opt.value = a;
+      opt.textContent = a;
+      assigneeSelect.appendChild(opt);
+    });
+
+    const sprintSelect = document.getElementById("sprintSelect");
+    sprints.forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s;
+      opt.textContent = s;
+      sprintSelect.appendChild(opt);
+    });
+  }
+
+  function getStatusClass(status) {
+    if (status === "Done") return "status-done";
+    if (status === "In Progress" || status === "In Review") return "status-progress";
+    if (status === "Blocked") return "status-blocked";
+    if (status === "Backlog" || status === "Open") return "status-open";
+    return "";
+  }
+
+  function getPriorityClass(priority) {
+    if (priority === "Highest" || priority === "High") return "priority-high";
+    if (priority === "Medium") return "priority-medium";
+    return "priority-low";
+  }
+
+  function formatDate(dateStr) {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diff = now - date;
+    const days = Math.floor(diff / 86400000);
+
+    if (days === 0) return "Today";
+    if (days === 1) return "Yesterday";
+    if (days < 7) return `${days}d ago`;
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  function formatWorklog(minutes) {
+    if (!minutes) return "-";
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  }
+
+  function applyFilters() {
+    filteredIssues = issues.filter(issue => {
+      if (selectedStatuses.length > 0 && !selectedStatuses.includes(issue.status)) return false;
+      if (selectedProject && issue.project_key !== selectedProject) return false;
+      if (selectedAssignee && issue.assignee !== selectedAssignee) return false;
+      if (selectedSprint && issue.sprint !== selectedSprint) return false;
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        return issue.issue_key.toLowerCase().includes(query) ||
+               issue.summary.toLowerCase().includes(query);
+      }
+      return true;
+    });
+
+    currentPage = 0;
+    renderIssues();
+    renderStats();
+    updateCounts();
+  }
+
+  function renderIssues() {
+    const sortBy = document.getElementById("sortBy").value;
+    const sortOrder = document.getElementById("sortOrder").value;
+
+    const sorted = [...filteredIssues].sort((a, b) => {
+      let valA = a[sortBy];
+      let valB = b[sortBy];
+
+      if (sortBy === "updated_at" || sortBy === "created_at") {
+        valA = new Date(valA).getTime();
+        valB = new Date(valB).getTime();
+      }
+
+      if (sortOrder === "desc") {
+        return valB > valA ? 1 : -1;
+      } else {
+        return valA > valB ? 1 : -1;
+      }
+    });
+
+    const start = currentPage * pageSize;
+    const end = start + pageSize;
+    const pageIssues = sorted.slice(start, end);
+
+    const tbody = document.getElementById("issueTableBody");
+
+    if (pageIssues.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="8">
+            <div class="empty-state">
+              <p>No issues found matching your filters</p>
+            </div>
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = pageIssues.map(issue => `
+      <tr class="hover-row" data-key="${issue.issue_key}" style="cursor:pointer;">
+        <td>${issue.issue_key}</td>
+        <td>${issue.summary.substring(0, 80)}${issue.summary.length > 80 ? "..." : ""}</td>
+        <td><span class="status-badge ${getStatusClass(issue.status)}">${issue.status}</span></td>
+        <td>${issue.assignee || "<em style='color:var(--muted)'>Unassigned</em>"}</td>
+        <td><span class="${getPriorityClass(issue.priority)}">${issue.priority}</span></td>
+        <td>${issue.sprint}</td>
+        <td>${formatDate(issue.updated_at)}</td>
+        <td>${formatWorklog(issue.worklog_minutes)}</td>
+      </tr>
+    `).join("");
+
+    tbody.querySelectorAll(".hover-row").forEach(row => {
+      row.addEventListener("click", () => {
+        const key = row.dataset.key;
+        const issue = issues.find(i => i.issue_key === key);
+        showIssueDetail(issue);
+      });
+    });
+
+    renderPagination(sorted.length);
+  }
+
+  function renderPagination(total) {
+    const totalPages = Math.ceil(total / pageSize);
+    const container = document.getElementById("pagination");
+
+    if (totalPages <= 1) {
+      container.innerHTML = "";
+      return;
+    }
+
+    let html = `<button class="btn ghost" ${currentPage === 0 ? "disabled" : ""} data-page="${currentPage - 1}">← Prev</button>`;
+
+    for (let i = 0; i < totalPages; i++) {
+      if (i === 0 || i === totalPages - 1 || (i >= currentPage - 1 && i <= currentPage + 1)) {
+        html += `<button class="btn ${i === currentPage ? "" : "ghost"}" data-page="${i}">${i + 1}</button>`;
+      } else if (i === currentPage - 2 || i === currentPage + 2) {
+        html += `<span class="page-info">...</span>`;
+      }
+    }
+
+    html += `<button class="btn ghost" ${currentPage === totalPages - 1 ? "disabled" : ""} data-page="${currentPage + 1}">Next →</button>`;
+
+    container.innerHTML = html;
+
+    container.querySelectorAll("button[data-page]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        currentPage = parseInt(btn.dataset.page);
+        renderIssues();
+        applyFilters();
+      });
+    });
+  }
+
+  function updateCounts() {
+    document.getElementById("totalCount").textContent = filteredIssues.length;
+    document.getElementById("resultBadge").textContent = `${filteredIssues.length} results`;
+  }
+
+  function renderStats() {
+    const statusCounts = {};
+    const projectCounts = {};
+    const worklogTotal = filteredIssues.reduce((sum, i) => sum + (i.worklog_minutes || 0), 0);
+
+    filteredIssues.forEach(issue => {
+      statusCounts[issue.status] = (statusCounts[issue.status] || 0) + 1;
+      projectCounts[issue.project_key] = (projectCounts[issue.project_key] || 0) + 1;
+    });
+
+    const statsGrid = document.getElementById("statsGrid");
+    statsGrid.innerHTML = `
+      <div class="stat-card">
+        <div class="stat-value">${filteredIssues.length}</div>
+        <div class="stat-label">Total Issues</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${(worklogTotal / 60).toFixed(1)}h</div>
+        <div class="stat-label">Total Worklog</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${statusCounts["Done"] || 0}</div>
+        <div class="stat-label">Completed</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${statusCounts["Blocked"] || 0}</div>
+        <div class="stat-label">Blocked</div>
+      </div>
+    `;
+
+    const totalIssues = filteredIssues.length || 1;
+
+    const statusDist = document.getElementById("statusDistribution");
+    statusDist.innerHTML = Object.entries(statusCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([status, count]) => {
+        const pct = Math.round((count / totalIssues) * 100);
+        return `
+          <div style="margin-bottom:8px;">
+            <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+              <span><span class="status-badge ${getStatusClass(status)}">${status}</span></span>
+              <span>${count} (${pct}%)</span>
+            </div>
+            <div class="stat-bar"><div class="stat-bar-fill" style="width:${pct}%"></div></div>
+          </div>
+        `;
+      }).join("");
+
+    const projectDist = document.getElementById("projectDistribution");
+    projectDist.innerHTML = Object.entries(projectCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([project, count]) => {
+        const pct = Math.round((count / totalIssues) * 100);
+        return `
+          <div style="margin-bottom:8px;">
+            <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+              <span>${project}</span>
+              <span>${count} (${pct}%)</span>
+            </div>
+            <div class="project-bar"><div class="project-bar-fill" style="width:${pct}%"></div></div>
+          </div>
+        `;
+      }).join("");
+  }
+
+  function showIssueDetail(issue) {
+    const drawer = document.getElementById("detailDrawer");
+    const overlay = document.getElementById("drawerOverlay");
+    const content = document.getElementById("drawerContent");
+
+    content.innerHTML = `
+      <div style="margin-bottom:16px;">
+        <span class="status-badge ${getStatusClass(issue.status)}" style="font-size:13px; padding:4px 10px;">${issue.status}</span>
+        <span class="status-badge" style="font-size:13px; padding:4px 10px; margin-left:8px;">${issue.issue_type}</span>
+      </div>
+
+      <h2 style="margin:0 0:8px; font-family:var(--font-title); font-size:20px;">${issue.issue_key}</h2>
+      <p style="margin:0 0:16px; color:var(--muted); font-size:13px;">Project: ${issue.project_key}</p>
+
+      <div style="margin-bottom:16px;">
+        <h4 style="margin:0 0:6px; font-size:12px; color:var(--muted);">Summary</h4>
+        <p style="margin:0; font-size:14px;">${issue.summary}</p>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px;">
+        <div>
+          <h4 style="margin:0 0:6px; font-size:12px; color:var(--muted);">Assignee</h4>
+          <p style="margin:0; font-size:13px;">${issue.assignee || "Unassigned"}</p>
+        </div>
+        <div>
+          <h4 style="margin:0 0:6px; font-size:12px; color:var(--muted);">Reporter</h4>
+          <p style="margin:0; font-size:13px;">${issue.reporter}</p>
+        </div>
+        <div>
+          <h4 style="margin:0 0:6px; font-size:12px; color:var(--muted);">Priority</h4>
+          <p style="margin:0; font-size:13px; ${getPriorityClass(issue.priority)}">${issue.priority}</p>
+        </div>
+        <div>
+          <h4 style="margin:0 0:6px; font-size:12px; color:var(--muted);">Sprint</h4>
+          <p style="margin:0; font-size:13px;">${issue.sprint}</p>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px;">
+        <div>
+          <h4 style="margin:0 0:6px; font-size:12px; color:var(--muted);">Created</h4>
+          <p style="margin:0; font-size:13px;">${new Date(issue.created_at).toLocaleString()}</p>
+        </div>
+        <div>
+          <h4 style="margin:0 0:6px; font-size:12px; color:var(--muted);">Updated</h4>
+          <p style="margin:0; font-size:13px;">${new Date(issue.updated_at).toLocaleString()}</p>
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <h4 style="margin:0 0:6px; font-size:12px; color:var(--muted);">Worklog</h4>
+        <p style="margin:0; font-size:13px;">${formatWorklog(issue.worklog_minutes)} (${issue.worklog_minutes} minutes)</p>
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <h4 style="margin:0 0:6px; font-size:12px; color:var(--muted);">Labels</h4>
+        <div style="display:flex; flex-wrap:wrap; gap:6px;">
+          ${issue.labels.map(l => `<span class="status-badge">${l}</span>`).join("")}
+        </div>
+      </div>
+
+      <div style="border-top:1px solid var(--line); padding-top:16px;">
+        <h4 style="margin:0 0:6px; font-size:12px; color:var(--muted);">Description</h4>
+        <p style="margin:0; font-size:13px; line-height:1.5;">${issue.description}</p>
+      </div>
+
+      <div style="margin-top:20px; display:flex; gap:8px;">
+        <button class="btn">Open in Jira</button>
+        <button class="btn ghost">Copy JSON</button>
+        <button class="btn ghost">Add Comment</button>
+      </div>
+    `;
+
+    drawer.classList.add("open");
+    overlay.classList.add("show");
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    issues = generateMockIssues(200);
+    filteredIssues = [...issues];
+
+    renderFilters();
+    renderStatusChips();
+    applyFilters();
+
+    document.getElementById("searchInput").addEventListener("input", (e) => {
+      searchQuery = e.target.value;
+      applyFilters();
+    });
+
+    document.getElementById("projectSelect").addEventListener("change", (e) => {
+      selectedProject = e.target.value;
+      applyFilters();
+    });
+
+    document.getElementById("assigneeSelect").addEventListener("change", (e) => {
+      selectedAssignee = e.target.value;
+      applyFilters();
+    });
+
+    document.getElementById("sprintSelect").addEventListener("change", (e) => {
+      selectedSprint = e.target.value;
+      applyFilters();
+    });
+
+    document.getElementById("sortBy").addEventListener("change", renderIssues);
+    document.getElementById("sortOrder").addEventListener("change", renderIssues);
+    document.getElementById("limitSelect").addEventListener("change", (e) => {
+      pageSize = parseInt(e.target.value);
+      renderIssues();
+    });
+
+    document.getElementById("resetFilterBtn").addEventListener("click", () => {
+      selectedStatuses = [];
+      selectedProject = "";
+      selectedAssignee = "";
+      selectedSprint = "";
+      searchQuery = "";
+      document.getElementById("searchInput").value = "";
+      document.getElementById("projectSelect").value = "";
+      document.getElementById("assigneeSelect").value = "";
+      document.getElementById("sprintSelect").value = "";
+      renderStatusChips();
+      applyFilters();
+    });
+
+    document.getElementById("savedViewsBtn").addEventListener("click", () => {
+      document.getElementById("savedViewsMenu").classList.toggle("show");
+    });
+
+    document.querySelectorAll(".kebab-item").forEach(item => {
+      item.addEventListener("click", () => {
+        const filter = item.dataset.filter;
+        switch (filter) {
+          case "my-issues":
+            selectedAssignee = "xchen17";
+            selectedStatuses = ["Open", "In Progress", "In Review"];
+            break;
+          case "team-issues":
+            selectedProject = "TESS";
+            selectedStatuses = ["Open", "In Progress", "In Review"];
+            break;
+          case "blocked":
+            selectedStatuses = ["Blocked"];
+            break;
+          case "this-week":
+            const weekAgo = Date.now() - 604800000;
+            filteredIssues = filteredIssues.filter(i => new Date(i.updated_at).getTime() > weekAgo);
+            document.getElementById("savedViewsMenu").classList.remove("show");
+            renderIssues();
+            renderStats();
+            updateCounts();
+            return;
+        }
+        document.getElementById("savedViewsMenu").classList.remove("show");
+        document.getElementById("projectSelect").value = selectedProject;
+        document.getElementById("assigneeSelect").value = selectedAssignee;
+        renderStatusChips();
+        applyFilters();
+      });
+    });
+
+    document.getElementById("closeDrawer").addEventListener("click", () => {
+      document.getElementById("detailDrawer").classList.remove("open");
+      document.getElementById("drawerOverlay").classList.remove("show");
+    });
+
+    document.getElementById("drawerOverlay").addEventListener("click", () => {
+      document.getElementById("detailDrawer").classList.remove("open");
+      document.getElementById("drawerOverlay").classList.remove("show");
+    });
+
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest(".kebab")) {
+        document.getElementById("savedViewsMenu").classList.remove("show");
+      }
+    });
+  });
+</script>
+</body>
+</html>
