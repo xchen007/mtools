@@ -1,62 +1,22 @@
 {% extends "jira_workspace/base.html" %}
 
-{% block title %}Jira Sync | mtools{% endblock %}
+{% block title %}Jira Sync Profiles | mtools{% endblock %}
 
 {% block content %}
 <section class="page-section">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Jira Sync</h1>
-      <p class="page-subtitle">Manage sync scopes and inspect recent ingestion runs.</p>
+      <h1 class="page-title">Legacy Sync Profiles</h1>
+      <p class="page-subtitle">The Jira workflow now lives on the dedicated sync page.</p>
     </div>
   </div>
 
-  <div class="stack">
-    <section class="panel">
-      <div class="panel__header">
-        <h2 class="section-title">Run Configuration Presets</h2>
-      </div>
-      <div class="profile-list">
-        {% for profile in profiles %}
-          <article class="profile-card">
-            <div class="profile-card__header">
-              <h3 class="profile-card__title">{{ profile.name }}</h3>
-              {% if profile.is_default %}
-                <span class="status-pill status-pill--neutral">Default</span>
-              {% endif %}
-            </div>
-            <dl class="meta-grid">
-              <div>
-                <dt>Type</dt>
-                <dd>{{ profile.get_profile_type_display|default:profile.profile_type }}</dd>
-              </div>
-              <div>
-                <dt>JQL</dt>
-                <dd class="meta-grid__code">{{ profile.jql|default:"-" }}</dd>
-              </div>
-            </dl>
-          </article>
-        {% empty %}
-          <p class="empty-state">No sync profiles configured yet.</p>
-        {% endfor %}
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel__header">
-        <h2 class="section-title">Sync Run Timeline</h2>
-      </div>
-      {% if jira_blocker_message %}
-        <article class="recent-item">
-          <div class="recent-item__top">
-            <span class="issue-key">External Jira access is currently blocked</span>
-            <span class="issue-status">attention</span>
-          </div>
-          <div class="recent-item__summary">{{ jira_blocker_message }}</div>
-        </article>
-      {% endif %}
-      {% include "jira_workspace/partials/sync_runs.html" with sync_runs=sync_runs %}
-    </section>
-  </div>
+  <section class="panel">
+    <div class="panel__header">
+      <h2 class="section-title">Open Jira Sync</h2>
+      <a class="status-pill status-pill--accent" href="{% url 'jira_workspace:sync' %}">/jira/sync/</a>
+    </div>
+    <p class="empty-state">Use the new sync page for profile configuration, run history, and blocker reporting.</p>
+  </section>
 </section>
 {% endblock %}

@@ -3,7 +3,12 @@ from unittest.mock import Mock
 
 from django.test import TestCase
 
-from jira_workspace.models import JiraIssue, JiraSyncProfile, JiraSyncRun
+from jira_workspace.models import (
+    JiraIssue,
+    JiraIssueSyncMembership,
+    JiraSyncProfile,
+    JiraSyncRun,
+)
 from jira_workspace.services.sync_service import SyncService
 
 
@@ -57,6 +62,8 @@ class JiraWorkspaceSyncServiceTests(TestCase):
         assert issue.priority == "High"
         assert profile.last_cursor == "2026-06-12T08:30:00+00:00"
         assert profile.last_incremental_sync_at is not None
+        assert profile.params_json["username"] == "xchen17"
+        assert JiraIssueSyncMembership.objects.filter(profile=profile, issue=issue).exists()
 
     def test_incremental_sync_updates_existing_issue_when_updated_at_changes(self):
         JiraIssue.objects.create(
@@ -158,7 +165,7 @@ class JiraWorkspaceSyncServiceTests(TestCase):
         project_jql = self.service.build_jql(project_profile)
         custom_jql = self.service.build_jql(custom_profile)
 
-        assert my_jql == 'assignee = "xchen17" ORDER BY updated DESC'
+        assert my_jql == "assignee = currentUser() ORDER BY updated DESC"
         assert project_jql == 'project = "TESS" ORDER BY updated DESC'
         assert custom_jql == 'project = "OPS" AND status = "Done"'
 
@@ -176,6 +183,156 @@ class JiraWorkspaceSyncServiceTests(TestCase):
 
         profile.refresh_from_db()
         assert profile.jql == 'project = "TESS" ORDER BY updated DESC'
+
+    def test_build_jql_wraps_custom_or_clause_before_appending_cursor(self):
+        profile = JiraSyncProfile(
+            name="Custom",
+            profile_type=JiraSyncProfile.ProfileType.CUSTOM_JQL,
+            params_json={"jql": 'project = "OPS" OR status = "Done"'},
+            jql="",
+        )
+
+        jql = self.service.build_jql(
+            profile,
+            updated_since="2026-06-11T08:30:00+00:00",
+        )
+
+        assert (
+            jql
+            == '(project = "OPS" OR status = "Done") AND updated >= "2026-06-11T08:30:00+00:00" ORDER BY updated DESC'
+        )
+
+    def test_build_jql_preserves_existing_order_by_when_appending_cursor(self):
+        profile = JiraSyncProfile(
+            name="Custom",
+            profile_type=JiraSyncProfile.ProfileType.CUSTOM_JQL,
+            params_json={
+                "jql": 'project = "OPS"\norder by priority DESC, updated ASC'
+            },
+            jql="",
+        )
+
+        jql = self.service.build_jql(
+            profile,
+            updated_since="2026-06-11T08:30:00+00:00",
+        )
+
+        assert (
+            jql
+            == '(project = "OPS") AND updated >= "2026-06-11T08:30:00+00:00" order by priority DESC, updated ASC'
+        )
+
+    def test_full_sync_removes_orphaned_issue_when_profile_no_longer_returns_it(self):
+        issue = JiraIssue.objects.create(
+            issue_key="TESS-321",
+            project_key="TESS",
+            summary="Old summary",
+            status="To Do",
+            assignee="xchen17",
+            reporter="reporter1",
+            priority="Medium",
+            sprint="Sprint 41",
+            updated_at="2026-06-10T08:30:00+00:00",
+            created_at="2026-06-01T09:00:00+00:00",
+            raw_json='{"key":"TESS-321","version":"old"}',
+            last_seen_at="2026-06-10T08:30:00+00:00",
+        )
+        profile = JiraSyncProfile.objects.create(
+            name="Project TESS",
+            profile_type=JiraSyncProfile.ProfileType.PROJECT,
+            params_json={"project_key": "TESS"},
+            jql="",
+        )
+        JiraIssueSyncMembership.objects.create(
+            issue=issue,
+            profile=profile,
+            last_seen_at="2026-06-10T08:30:00+00:00",
+        )
+        self.adapter.fetch_issues.return_value = []
+
+        self.service.full_sync(profile)
+
+        assert JiraIssue.objects.filter(issue_key="TESS-321").exists() is False
+        assert JiraIssueSyncMembership.objects.filter(profile=profile).exists() is False
+
+    def test_full_sync_keeps_issue_when_another_profile_still_references_it(self):
+        issue = JiraIssue.objects.create(
+            issue_key="TESS-321",
+            project_key="TESS",
+            summary="Old summary",
+            status="To Do",
+            assignee="xchen17",
+            reporter="reporter1",
+            priority="Medium",
+            sprint="Sprint 41",
+            updated_at="2026-06-10T08:30:00+00:00",
+            created_at="2026-06-01T09:00:00+00:00",
+            raw_json='{"key":"TESS-321","version":"old"}',
+            last_seen_at="2026-06-10T08:30:00+00:00",
+        )
+        profile = JiraSyncProfile.objects.create(
+            name="Project TESS",
+            profile_type=JiraSyncProfile.ProfileType.PROJECT,
+            params_json={"project_key": "TESS"},
+            jql="",
+        )
+        other_profile = JiraSyncProfile.objects.create(
+            name="Project OPS",
+            profile_type=JiraSyncProfile.ProfileType.PROJECT,
+            params_json={"project_key": "OPS"},
+            jql="",
+        )
+        JiraIssueSyncMembership.objects.create(
+            issue=issue,
+            profile=profile,
+            last_seen_at="2026-06-10T08:30:00+00:00",
+        )
+        JiraIssueSyncMembership.objects.create(
+            issue=issue,
+            profile=other_profile,
+            last_seen_at="2026-06-10T08:30:00+00:00",
+        )
+        self.adapter.fetch_issues.return_value = []
+
+        self.service.full_sync(profile)
+
+        assert JiraIssue.objects.filter(issue_key="TESS-321").exists() is True
+        assert JiraIssueSyncMembership.objects.filter(profile=profile).exists() is False
+        assert JiraIssueSyncMembership.objects.filter(profile=other_profile).exists() is True
+
+    def test_incremental_sync_does_not_remove_absent_memberships(self):
+        issue = JiraIssue.objects.create(
+            issue_key="TESS-321",
+            project_key="TESS",
+            summary="Old summary",
+            status="To Do",
+            assignee="xchen17",
+            reporter="reporter1",
+            priority="Medium",
+            sprint="Sprint 41",
+            updated_at="2026-06-10T08:30:00+00:00",
+            created_at="2026-06-01T09:00:00+00:00",
+            raw_json='{"key":"TESS-321","version":"old"}',
+            last_seen_at="2026-06-10T08:30:00+00:00",
+        )
+        profile = JiraSyncProfile.objects.create(
+            name="Project TESS",
+            profile_type=JiraSyncProfile.ProfileType.PROJECT,
+            params_json={"project_key": "TESS"},
+            jql="",
+            last_cursor="2026-06-11T08:30:00+00:00",
+        )
+        JiraIssueSyncMembership.objects.create(
+            issue=issue,
+            profile=profile,
+            last_seen_at="2026-06-10T08:30:00+00:00",
+        )
+        self.adapter.fetch_issues.return_value = []
+
+        self.service.incremental_sync(profile)
+
+        assert JiraIssue.objects.filter(issue_key="TESS-321").exists() is True
+        assert JiraIssueSyncMembership.objects.filter(profile=profile, issue=issue).exists()
 
     def test_full_sync_writes_success_sync_run(self):
         profile = JiraSyncProfile.objects.create(
@@ -201,3 +358,26 @@ class JiraWorkspaceSyncServiceTests(TestCase):
         assert run.finished_at is not None
         assert run.fetched_count == 1
         assert profile.last_full_sync_at is not None
+
+    def test_sync_status_reports_external_blocker_for_403_failure(self):
+        profile = JiraSyncProfile.objects.create(
+            name="My Issues",
+            profile_type=JiraSyncProfile.ProfileType.MY_ISSUES,
+            params_json={"username": "xchen17"},
+            jql="assignee = currentUser() ORDER BY updated DESC",
+            is_default=True,
+        )
+        JiraSyncRun.objects.create(
+            profile=profile,
+            run_type=JiraSyncRun.RunType.FULL,
+            status=JiraSyncRun.Status.FAILED,
+            started_at=datetime(2026, 6, 12, 8, 30, tzinfo=timezone.utc),
+            finished_at=datetime(2026, 6, 12, 8, 31, tzinfo=timezone.utc),
+            error_message="Jira returned 403: The request is blocked.",
+        )
+
+        status = self.service.build_sync_status()
+
+        assert status["has_external_blocker"] is True
+        assert status["blocker_message"] == "External Jira access is currently blocked."
+        assert status["latest_failure"].error_message == "Jira returned 403: The request is blocked."

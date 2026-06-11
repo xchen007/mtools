@@ -15,6 +15,7 @@
     <section class="panel">
       <div class="panel__header">
         <h2 class="section-title">Query Library</h2>
+        <span class="status-pill status-pill--neutral">{{ saved_queries|length }} saved</span>
       </div>
       {% include "jira_workspace/partials/query_library.html" with saved_queries=saved_queries %}
     </section>
@@ -30,16 +31,17 @@
               <span class="issue-key">JQL</span>
               <span class="issue-status">{{ selected_query.profile.name }}</span>
             </div>
-            <div class="recent-item__summary">{{ selected_query.jql_text|default:selected_query.profile.jql|default:"-"|safe }}</div>
+            <div class="recent-item__summary">{{ selected_query.description|default:"Reusable query configuration." }}</div>
             <pre class="meta-grid__code">{{ selected_query.jql_text|default:selected_query.profile.jql|default:"-"|safe }}</pre>
           </article>
-          <article class="recent-item">
-            <div class="recent-item__top">
-              <span class="issue-key">Status Filter</span>
-              <span class="issue-status">{{ selected_query.filters_json.status|join:", "|default:"-" }}</span>
-            </div>
-            <div class="recent-item__summary">Project Filter: {{ selected_query.filters_json.project|join:", "|default:"All projects" }}</div>
-          </article>
+          {% for item in selected_query_filters %}
+            <article class="recent-item">
+              <div class="recent-item__top">
+                <span class="issue-key">{{ item.label }}</span>
+                <span class="issue-status">{{ item.value }}</span>
+              </div>
+            </article>
+          {% endfor %}
         </div>
       {% else %}
         <p class="empty-state">No query selected.</p>

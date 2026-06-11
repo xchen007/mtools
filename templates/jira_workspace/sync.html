@@ -1,0 +1,87 @@
+{% extends "jira_workspace/base.html" %}
+
+{% block title %}Jira Sync | mtools{% endblock %}
+
+{% block content %}
+<section class="page-section">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Jira Sync</h1>
+      <p class="page-subtitle">Sync profiles, recent runs, and external Jira blocker visibility.</p>
+    </div>
+  </div>
+
+  <div class="dashboard-grid">
+    <section class="panel">
+      <div class="panel__header">
+        <h2 class="section-title">Run Configuration Presets</h2>
+        <span class="status-pill status-pill--neutral">{{ profiles|length }} profiles</span>
+      </div>
+      <div class="profile-list">
+        {% for profile in profiles %}
+          <article class="profile-card">
+            <div class="profile-card__header">
+              <h3 class="profile-card__title">{{ profile.name }}</h3>
+              {% if profile.is_default %}
+                <span class="status-pill status-pill--neutral">Default</span>
+              {% endif %}
+            </div>
+            <dl class="meta-grid">
+              <div>
+                <dt>Type</dt>
+                <dd>{{ profile.get_profile_type_display|default:profile.profile_type }}</dd>
+              </div>
+              <div>
+                <dt>Last Cursor</dt>
+                <dd class="meta-grid__code">{{ profile.last_cursor|default:"-" }}</dd>
+              </div>
+            </dl>
+          </article>
+        {% empty %}
+          <p class="empty-state">No sync profiles configured yet.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <aside class="dashboard-sidebar">
+      <section class="panel panel--tight">
+        <div class="panel__header">
+          <h2 class="section-title">Sync Run Timeline</h2>
+        </div>
+        {% if has_external_blocker %}
+          <article class="recent-item">
+            <div class="recent-item__top">
+              <span class="issue-key">External Jira access is currently blocked</span>
+              <span class="issue-status">403</span>
+            </div>
+            <div class="recent-item__summary">{{ latest_failed_run.error_message }}</div>
+          </article>
+        {% endif %}
+        <div class="recent-list">
+          {% for run in sync_runs|slice:":5" %}
+            <article class="recent-item">
+              <div class="recent-item__top">
+                <span class="issue-key">{{ run.profile.name }}</span>
+                <span class="issue-status">{{ run.status }}</span>
+              </div>
+              <div class="recent-item__summary">{{ run.get_run_type_display }} run with {{ run.fetched_count }} fetched.</div>
+            </article>
+          {% empty %}
+            <p class="empty-state">No sync runs recorded yet.</p>
+          {% endfor %}
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <section class="panel">
+    <div class="panel__header">
+      <h2 class="section-title">Recent Sync Runs</h2>
+      {% if has_external_blocker %}
+        <span class="status-pill status-pill--failed">{{ jira_blocker_message }}</span>
+      {% endif %}
+    </div>
+    {% include "jira_workspace/partials/sync_runs.html" with sync_runs=sync_runs %}
+  </section>
+</section>
+{% endblock %}

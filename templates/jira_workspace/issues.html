@@ -7,32 +7,66 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Jira Issues</h1>
-      <p class="page-subtitle">Current locally cached issues with the shared workspace shell.</p>
+      <p class="page-subtitle">Local-cache issue browsing with reusable saved views and filter state.</p>
     </div>
   </div>
 
-  <div class="dashboard-grid">
-    <aside class="dashboard-sidebar">
-      <section class="panel panel--tight">
-        <div class="panel__header">
-          <h2 class="section-title">Saved Views</h2>
-        </div>
-        {% include "jira_workspace/partials/query_library.html" with saved_queries=saved_queries %}
-      </section>
-    </aside>
+  <section class="panel">
+    <div class="panel__header">
+      <h2 class="section-title">Saved Views</h2>
+      <span class="status-pill status-pill--neutral">Bulk Actions</span>
+    </div>
+    <div class="chip-row">
+      {% for query in saved_queries %}
+        <span class="chip{% if forloop.first %} is-active{% endif %}">{{ query.name }}</span>
+      {% empty %}
+        <span class="empty-state">No saved views yet.</span>
+      {% endfor %}
+    </div>
+    <div class="chip-row">
+      <span class="status-pill status-pill--neutral">Search: {{ issue_filters.search|default:"-" }}</span>
+      <span class="status-pill status-pill--neutral">Project: {{ issue_filters.project|default:"All" }}</span>
+      <span class="status-pill status-pill--neutral">Status: {{ issue_filters.status|default:"All" }}</span>
+      <span class="status-pill status-pill--neutral">Source: {{ issue_filters.source|default:"all" }}</span>
+    </div>
+  </section>
 
-    <section class="panel">
+  <div class="dashboard-grid">
+    <section class="panel dashboard-main">
       <div class="panel__header">
         <h2 class="section-title">Issue Results</h2>
-        <span class="status-pill status-pill--neutral">Bulk Actions</span>
-      </div>
-      <div class="chip-row">
-        <span class="status-pill status-pill--neutral">Search: {{ issue_filters.search|default:"-" }}</span>
-        <span class="status-pill status-pill--neutral">Project: {{ issue_filters.project|default:"All" }}</span>
-        <span class="status-pill status-pill--neutral">Status: {{ issue_filters.status|default:"All" }}</span>
+        <span class="status-pill status-pill--neutral">{{ ticket_rows|length }} rows</span>
       </div>
       {% include "jira_workspace/partials/ticket_table.html" with ticket_rows=ticket_rows %}
     </section>
+
+    <aside class="dashboard-sidebar">
+      <section class="panel panel--tight">
+        <div class="panel__header">
+          <h2 class="section-title">Filters</h2>
+        </div>
+        <div class="recent-list">
+          <article class="recent-item">
+            <div class="recent-item__top">
+              <span class="issue-key">Search</span>
+              <span class="issue-status">{{ issue_filter_form.query.value|default:"-" }}</span>
+            </div>
+          </article>
+          <article class="recent-item">
+            <div class="recent-item__top">
+              <span class="issue-key">Project</span>
+              <span class="issue-status">{{ issue_filters.project|default:"All" }}</span>
+            </div>
+          </article>
+          <article class="recent-item">
+            <div class="recent-item__top">
+              <span class="issue-key">Status</span>
+              <span class="issue-status">{{ issue_filters.status|default:"Any" }}</span>
+            </div>
+          </article>
+        </div>
+      </section>
+    </aside>
   </div>
 </section>
 {% endblock %}

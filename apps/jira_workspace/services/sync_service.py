@@ -1,9 +1,15 @@
+import re
 from dataclasses import dataclass
 
 from django.db import transaction
 from django.utils import timezone
 
-from jira_workspace.models import JiraIssue, JiraSyncProfile, JiraSyncRun
+from jira_workspace.models import (
+    JiraIssue,
+    JiraIssueSyncMembership,
+    JiraSyncProfile,
+    JiraSyncRun,
+)
 from jira_workspace.services.jira_adapter import JiraAdapter
 
 
@@ -17,7 +23,7 @@ class SyncResult:
 
 class SyncService:
     def __init__(self, *, jira_adapter=None):
-        self.jira = jira_adapter or JiraAdapter()
+        self.jira = jira_adapter
 
     def full_sync(self, profile):
         return self._sync(profile=profile, run_type=JiraSyncRun.RunType.FULL)
@@ -29,12 +35,32 @@ class SyncService:
             updated_since=profile.last_cursor,
         )
 
+    def build_sync_status(self):
+        recent_runs = list(
+            JiraSyncRun.objects.select_related("profile").order_by("-started_at")[:20]
+        )
+        latest_failure = next(
+            (run for run in recent_runs if run.status == JiraSyncRun.Status.FAILED),
+            None,
+        )
+        has_external_blocker = bool(
+            latest_failure and self._is_external_blocker_error(latest_failure.error_message)
+        )
+        blocker_message = (
+            "External Jira access is currently blocked."
+            if has_external_blocker
+            else ""
+        )
+        return {
+            "recent_runs": recent_runs,
+            "latest_failure": latest_failure,
+            "has_external_blocker": has_external_blocker,
+            "blocker_message": blocker_message,
+        }
+
     def build_jql(self, profile, updated_since=None):
         if profile.profile_type == JiraSyncProfile.ProfileType.MY_ISSUES:
-            username = profile.params_json.get("username") or self.jira.fetch_current_user()
-            if not username:
-                raise ValueError("Unable to resolve Jira username for my_issues profile.")
-            base_jql = f'assignee = "{username}"'
+            base_jql = "assignee = currentUser()"
             return self._append_updated_clause(base_jql, updated_since)
 
         if profile.profile_type == JiraSyncProfile.ProfileType.PROJECT:
@@ -64,10 +90,16 @@ class SyncService:
         )
 
         try:
+            self._refresh_profile_identity(profile)
             base_jql = self.build_jql(profile)
             effective_jql = self._append_updated_clause(base_jql, updated_since)
-            items = self.jira.fetch_issues(effective_jql)
-            result = self._store_items(profile=profile, items=items, run_type=run_type)
+            items = self._jira_client().fetch_issues(effective_jql)
+            result = self._store_items(
+                profile=profile,
+                items=items,
+                run_type=run_type,
+                synced_at=started_at,
+            )
 
             profile.jql = base_jql
             if run_type == JiraSyncRun.RunType.FULL:
@@ -77,6 +109,7 @@ class SyncService:
             profile.save(
                 update_fields=[
                     "jql",
+                    "params_json",
                     "last_cursor",
                     "last_full_sync_at",
                     "last_incremental_sync_at",
@@ -109,9 +142,8 @@ class SyncService:
             raise
 
     @transaction.atomic
-    def _store_items(self, *, profile, items, run_type):
+    def _store_items(self, *, profile, items, run_type, synced_at):
         result = SyncResult(fetched_count=len(items))
-        last_seen_at = timezone.now()
         max_updated = None
 
         for item in items:
@@ -119,7 +151,7 @@ class SyncService:
             issue = JiraIssue.objects.filter(issue_key=item["issue_key"]).first()
 
             if issue is None:
-                JiraIssue.objects.create(
+                issue = JiraIssue.objects.create(
                     issue_key=item["issue_key"],
                     project_key=item["project_key"],
                     summary=item["summary"],
@@ -131,11 +163,11 @@ class SyncService:
                     updated_at=updated_at,
                     created_at=item.get("created_at"),
                     raw_json=item.get("raw_json", "{}"),
-                    last_seen_at=last_seen_at,
+                    last_seen_at=synced_at,
                 )
                 result.inserted_count += 1
             elif issue.updated_at == updated_at:
-                issue.last_seen_at = last_seen_at
+                issue.last_seen_at = synced_at
                 issue.save(update_fields=["last_seen_at"])
                 result.skipped_count += 1
             else:
@@ -149,12 +181,21 @@ class SyncService:
                 issue.updated_at = updated_at
                 issue.created_at = item.get("created_at")
                 issue.raw_json = item.get("raw_json", "{}")
-                issue.last_seen_at = last_seen_at
+                issue.last_seen_at = synced_at
                 issue.save()
                 result.updated_count += 1
 
+            JiraIssueSyncMembership.objects.update_or_create(
+                issue=issue,
+                profile=profile,
+                defaults={"last_seen_at": synced_at},
+            )
+
             if updated_at and (max_updated is None or updated_at > max_updated):
                 max_updated = updated_at
+
+        if run_type == JiraSyncRun.RunType.FULL:
+            self._reconcile_stale_memberships(profile=profile, synced_at=synced_at)
 
         if max_updated is not None:
             profile.last_cursor = max_updated.isoformat()
@@ -162,6 +203,31 @@ class SyncService:
             profile.last_cursor = None
 
         return result
+
+    def _refresh_profile_identity(self, profile):
+        if profile.profile_type != JiraSyncProfile.ProfileType.MY_ISSUES:
+            return
+
+        username = self._jira_client().fetch_current_user()
+        if not username:
+            raise ValueError("Unable to resolve Jira username for my_issues profile.")
+
+        params_json = dict(profile.params_json or {})
+        params_json["username"] = username
+        profile.params_json = params_json
+
+    @staticmethod
+    def _reconcile_stale_memberships(*, profile, synced_at):
+        stale_issue_keys = list(
+            JiraIssueSyncMembership.objects.filter(profile=profile, last_seen_at__lt=synced_at)
+            .values_list("issue_id", flat=True)
+        )
+        JiraIssueSyncMembership.objects.filter(profile=profile, last_seen_at__lt=synced_at).delete()
+        if stale_issue_keys:
+            JiraIssue.objects.filter(
+                issue_key__in=stale_issue_keys,
+                sync_memberships__isnull=True,
+            ).delete()
 
     @staticmethod
     def _append_updated_clause(jql, updated_since):
@@ -172,15 +238,26 @@ class SyncService:
             return f"{cleaned} ORDER BY updated DESC"
 
         updated_clause = f'updated >= "{updated_since}"'
-        lower_jql = cleaned.lower()
-        order_index = lower_jql.find(" order by ")
-        if order_index >= 0:
-            base = cleaned[:order_index].strip()
-            order_by = cleaned[order_index:].strip()
-        else:
-            base = cleaned
-            order_by = "ORDER BY updated DESC"
+        base, order_by = SyncService._split_order_by(cleaned)
+        order_by = order_by or "ORDER BY updated DESC"
 
         if base:
-            return f"{base} AND {updated_clause} {order_by}".strip()
+            return f"({base}) AND {updated_clause} {order_by}".strip()
         return f"{updated_clause} {order_by}".strip()
+
+    @staticmethod
+    def _split_order_by(jql):
+        match = re.search(r"\border\s+by\b", jql, flags=re.IGNORECASE)
+        if not match:
+            return jql.strip(), ""
+        return jql[: match.start()].strip(), jql[match.start() :].strip()
+
+    @staticmethod
+    def _is_external_blocker_error(message):
+        normalized = (message or "").lower()
+        return "403" in normalized and "the request is blocked" in normalized
+
+    def _jira_client(self):
+        if self.jira is None:
+            self.jira = JiraAdapter()
+        return self.jira
