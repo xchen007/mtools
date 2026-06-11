@@ -3,8 +3,14 @@ from datetime import timedelta
 from django.shortcuts import render
 from django.utils import timezone
 
-from jira_workspace.forms import JiraIssueFilterForm, JiraSavedQueryForm, JiraSyncProfileForm
+from jira_workspace.forms import (
+    JiraIssueFilterForm,
+    JiraSavedQueryForm,
+    JiraSyncProfileForm,
+    Sync2PodProfileForm,
+)
 from jira_workspace.models import JiraSavedQuery, JiraSyncProfile, JiraSyncRun
+from jira_workspace.services.integrations_service import IntegrationsService
 from jira_workspace.services.query_service import (
     build_issue_filter_options,
     build_issue_queryset,
@@ -15,6 +21,8 @@ from jira_workspace.services.stats_service import (
     build_dashboard_summary,
 )
 from jira_workspace.services.sync_service import SyncService
+from jira_workspace.services.sync2pod_service import Sync2PodService
+from jira_workspace.services.workspace_service import WorkspaceService
 
 DEFAULT_RANGE_KEY = "15d"
 DEFAULT_USERNAME = "xchen17"
@@ -29,30 +37,14 @@ RANGE_OPTIONS = ("7d", "15d", "30d", "90d", "1y", "all")
 
 
 def _base_shell_context(*, title, breadcrumb, quick_action="Quick Action", env_label="ENV: LOCAL"):
+    workspace_service = WorkspaceService()
     return {
         "shell_title": title,
         "shell_breadcrumb": breadcrumb,
         "shell_quick_action": quick_action,
         "shell_env_label": env_label,
         "shell_user": _resolve_username(),
-        "shell_rail_sections": [
-            {
-                "title": "Activity",
-                "items": [
-                    {"label": "Jira sync", "value": "available"},
-                    {"label": "sync2pod", "value": "pending"},
-                    {"label": "catalog scan", "value": "pending"},
-                ],
-            },
-            {
-                "title": "Health",
-                "items": [
-                    {"label": "Static assets", "value": "ok"},
-                    {"label": "DB cache", "value": "ok"},
-                    {"label": "External APIs", "value": "check"},
-                ],
-            },
-        ],
+        "shell_rail_sections": workspace_service.build_rail_sections(),
     }
 
 
@@ -189,32 +181,30 @@ def profiles(request):
 
 
 def workspace_home(request):
-    sync_runs = JiraSyncRun.objects.select_related("profile").order_by("-started_at")[:6]
-    context = {
-        "recent_runs": sync_runs,
-        "workspace_cards": [
-            {
-                "title": "Jira Dashboard",
-                "description": "Personal issue health, projects, and recent updates.",
-                "href": "/jira/dashboard/",
-            },
-            {
-                "title": "Jira Query",
-                "description": "Saved filters, reusable views, and investigation flows.",
-                "href": "/jira/query/",
-            },
-            {
-                "title": "sync2pod",
-                "description": "Profiles, execution state, and watch queue visibility.",
-                "href": "/sync2pod/",
-            },
-            {
-                "title": "Integrations",
-                "description": "Catalog, contracts, readiness, and scan history.",
-                "href": "/integrations/",
-            },
-        ],
-    }
+    workspace_service = WorkspaceService()
+    context = workspace_service.build_home_context()
+    context["workspace_cards"] = [
+        {
+            "title": "Jira Dashboard",
+            "description": "Personal issue health, projects, and recent updates.",
+            "href": "/jira/dashboard/",
+        },
+        {
+            "title": "Jira Query",
+            "description": "Saved filters, reusable views, and investigation flows.",
+            "href": "/jira/query/",
+        },
+        {
+            "title": "sync2pod",
+            "description": "Profiles, execution state, and watch queue visibility.",
+            "href": "/sync2pod/",
+        },
+        {
+            "title": "Integrations",
+            "description": "Catalog, contracts, readiness, and scan history.",
+            "href": "/integrations/",
+        },
+    ]
     context.update(
         _base_shell_context(
             title="Workspace",
@@ -300,12 +290,23 @@ def query(request):
 
 
 def sync2pod(request):
+    sync2pod_status = Sync2PodService().build_status_summary()
+    latest_run = sync2pod_status["runs"][0] if sync2pod_status["runs"] else None
+    latest_state = latest_run.status if latest_run else "idle"
+    latest_throughput = latest_run.stdout_log if latest_run and latest_run.stdout_log else "No completed runs yet."
     context = {
+        "sync2pod_profiles": sync2pod_status["profiles"],
+        "sync2pod_runs": sync2pod_status["runs"],
+        "sync2pod_queued_events": sync2pod_status["queued_events"],
+        "sync2pod_latest_failure": sync2pod_status["latest_failure"],
+        "sync2pod_capability": sync2pod_status["capability"],
+        "sync2pod_error_messages": sync2pod_status["error_messages"],
+        "sync2pod_profile_form": Sync2PodProfileForm(),
         "sync2pod_metrics": [
-            {"value": "0", "label": "Queued events"},
-            {"value": "idle", "label": "Run state"},
-            {"value": "n/a", "label": "Last throughput"},
-        ]
+            {"value": sync2pod_status["queue_count"], "label": "Queued Watch Events"},
+            {"value": latest_state, "label": "Run State"},
+            {"value": latest_throughput, "label": "Last Throughput"},
+        ],
     }
     context.update(
         _base_shell_context(
@@ -318,22 +319,12 @@ def sync2pod(request):
 
 
 def integrations(request):
+    catalog = IntegrationsService().build_catalog(query=request.GET.get("query", ""))
     context = {
-        "integration_groups": [
-            {
-                "name": "Issue Ops",
-                "items": [
-                    {"name": "Jira Issues", "status": "ready"},
-                    {"name": "Jira Sync", "status": "ready"},
-                ],
-            },
-            {
-                "name": "Sync Ops",
-                "items": [
-                    {"name": "sync2pod", "status": "pending"},
-                ],
-            },
-        ]
+        "integration_groups": catalog["groups"],
+        "integration_contract_rows": catalog["contract_rows"],
+        "integration_recent_runs": catalog["recent_runs"],
+        "integration_query": catalog["query"],
     }
     context.update(
         _base_shell_context(

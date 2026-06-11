@@ -6,10 +6,20 @@
 <section class="page-section">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Workspace</h1>
-      <p class="page-subtitle">Operational entry points for Jira, sync2pod, and integrations.</p>
+      <h1 class="page-title">Workspace Overview</h1>
+      <p class="page-subtitle">Cross-tool entry points, health signals, and recent operational activity.</p>
     </div>
   </div>
+
+  <section class="workspace-card-grid workspace-card-grid--compact">
+    {% for card in summary_cards %}
+      <article class="workspace-card workspace-card--static">
+        <strong>{{ card.value }}</strong>
+        <span>{{ card.title }}</span>
+        <div class="recent-item__summary">{{ card.detail }}</div>
+      </article>
+    {% endfor %}
+  </section>
 
   <section class="workspace-card-grid">
     {% for card in workspace_cards %}
@@ -20,21 +30,53 @@
     {% endfor %}
   </section>
 
+  <div class="dashboard-grid">
+    <section class="panel">
+      <div class="panel__header">
+        <h2 class="section-title">Cross-Tool Activity</h2>
+      </div>
+      <div class="recent-list">
+        {% for item in recent_activity %}
+          <article class="recent-item">
+            <div class="recent-item__top">
+              <span class="issue-key">{{ item.tool }}</span>
+              <span class="issue-status">{{ item.status }}</span>
+            </div>
+            <div class="recent-item__summary">{{ item.summary }}</div>
+          </article>
+        {% empty %}
+          <p class="empty-state">No recent activity available.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel panel--tight">
+      <div class="panel__header">
+        <h2 class="section-title">Cross-Tool Health</h2>
+      </div>
+      <div class="recent-list">
+        {% for item in health_items %}
+          <article class="recent-item">
+            <div class="recent-item__top">
+              <span class="issue-key">{{ item.label }}</span>
+              <span class="issue-status">{{ item.value }}</span>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
   <section class="panel">
     <div class="panel__header">
-      <h2 class="section-title">Recent Runs</h2>
+      <h2 class="section-title">Workspace Routes</h2>
     </div>
-    <div class="recent-list">
-      {% for run in recent_runs %}
-        <article class="recent-item">
-          <div class="recent-item__top">
-            <span class="issue-key">{{ run.profile.name }}</span>
-            <span class="issue-status">{{ run.status }}</span>
-          </div>
-          <div class="recent-item__summary">{{ run.run_type }} sync fetched {{ run.fetched_count }} issues.</div>
+    <div class="workspace-card-grid workspace-card-grid--compact">
+      {% for card in workspace_cards %}
+        <article class="workspace-card workspace-card--static">
+          <strong>{{ card.title }}</strong>
+          <span>{{ card.href }}</span>
         </article>
-      {% empty %}
-        <p class="empty-state">No recent runs available.</p>
       {% endfor %}
     </div>
   </section>

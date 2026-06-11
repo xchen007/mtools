@@ -1,0 +1,36 @@
+<div class="table-wrap">
+  <table class="ticket-table ticket-table--compact">
+    <thead>
+      <tr>
+        <th scope="col">Profile</th>
+        <th scope="col">Run Type</th>
+        <th scope="col">Status</th>
+        <th scope="col">Started</th>
+        <th scope="col">Finished</th>
+        <th scope="col">Fetched</th>
+        <th scope="col">Inserted</th>
+        <th scope="col">Updated</th>
+        <th scope="col">Skipped</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in sync_runs %}
+        <tr>
+          <td>{{ run.profile.name|default:"-" }}</td>
+          <td>{{ run.get_run_type_display|default:run.run_type|default:"-" }}</td>
+          <td><span class="status-pill status-pill--{{ run.status|default:'neutral' }}">{{ run.status|default:"-" }}</span></td>
+          <td>{{ run.started_at|date:"Y-m-d H:i"|default:"-" }}</td>
+          <td>{{ run.finished_at|date:"Y-m-d H:i"|default:"-" }}</td>
+          <td>{{ run.fetched_count|default:0 }}</td>
+          <td>{{ run.inserted_count|default:0 }}</td>
+          <td>{{ run.updated_count|default:0 }}</td>
+          <td>{{ run.skipped_count|default:0 }}</td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td class="empty-state empty-state--cell" colspan="9">No sync runs recorded yet.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

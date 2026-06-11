@@ -1,146 +1,90 @@
 # mtools
 
-> Personal utility tools and APIs - unified integration workspace
+`mtools` is a Django workspace for Jira operations, sync2pod execution, and integrations cataloging.
 
-## Overview
+## Current Workspace
 
-`mtools` is a utility tool platform consolidating Jira integration, sync operations, and future myscript tools. The project provides both backend services and frontend interfaces for streamlined workflow management.
+The active app is `apps/jira_workspace`. It now provides:
 
-## Features
+- `/workspace/` for cross-tool summary cards, health, and recent activity
+- `/jira/dashboard/` for issue metrics and recent tickets
+- `/jira/query/` for saved Jira query presets
+- `/jira/issues/` for filterable issue results
+- `/jira/sync/` for Jira sync profiles, runs, and blocker states
+- `/sync2pod/` for stored sync2pod profiles, run logs, and queued watch events
+- `/integrations/` for grouped tool catalog, contract matrix, and recent scan activity
 
-### Jira Integration
+The root route `/` redirects to `/workspace/`.
 
-Advanced Jira query and sync capabilities powered by mjira:
+## Local Setup
 
-- **Issue Query**: Full-text search with multi-filter support
-  - Filter by project, assignee, sprint, status
-  - Sort by updated/created date, issue key, or summary
-  - Pagination with customizable page sizes
-  - Saved views: My Issues, Team Issues, Blocked, This Week
-  - Statistics: status and project distribution with progress bars
-  - Issue detail drawer with complete information
-
-- **Issues Management**: List-detail interface with saved views, compound filters, and bulk actions
-- **Sync Center**: Run presets, dry-run previews, timeline visualization, and error bucket management
-- **Real-time Stats**: Project distribution, status metrics, and issue counts
-
-### Sync Operations
-
-- **sync2pod**: Local-to-pod sync tool showcase with full workflow simulation
-  - Project configuration manager
-  - Sync strategy panel (incremental/force full/dry-run)
-  - Execution console with progress stream
-  - Watch mode with debounce control
-  - Archive/chunk upload insights
-  - Exclusion patterns and safety validation
-
-### Integration Catalog
-
-- Grouped tools by type: Issue Ops / Sync Ops / Utilities
-- Readiness badges: ready / beta / planned
-- Contract surface indicators: input/output schemas and event streams
-- Add from myscript onboarding flow placeholder
-
-## Frontend Preview
-
-All pages are built with frontend-only mock data for design review:
-
-- **Shared app shell**: Consistent layout across all tools
-- **Unified design tokens**: Colors, typography, spacing, and component patterns
-- **Status vocabulary**: `idle` / `running` / `success` / `failed` / `partial` / `queued`
-- **Mock data contracts**: `ToolRun`, `LogEvent`, `SyncProjectConfig`, `SyncSessionStats`, `JiraIssue`
-
-### Available Pages
-
-- `ui-preview/index.html` - Workspace entry and design baseline
-- `ui-preview/jira-query.html` - Advanced issue search and filtering
-- `ui-preview/jira-issues.html` - Issue list with saved views and bulk actions
-- `ui-preview/jira-sync.html` - Sync run management and dry-run preview
-- `ui-preview/sync2pod.html` - sync2pod tool workflow showcase
-- `ui-preview/integrations.html` - Tool catalog and integration status
-- `ui-preview/dashboard.html` - Workspace KPIs and tool state overview
-
-## Getting Started
-
-### Preview (Frontend Only)
-
-Open any HTML file in `ui-preview/` directory with your browser:
+Run migrations:
 
 ```bash
-open ui-preview/index.html
-open ui-preview/jira-query.html
+.venv/bin/python manage.py migrate
 ```
 
-### Backend Setup
+Start the dev server:
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+.venv/bin/python manage.py runserver 127.0.0.1:8011
+```
 
-# Run CLI tools
-python -m mtools.cli --help
+If port `8011` is busy, choose another local port:
+
+```bash
+.venv/bin/python manage.py runserver 127.0.0.1:8020
+```
+
+## Verification Routes
+
+Open these pages after the server starts:
+
+- `http://127.0.0.1:8011/workspace/`
+- `http://127.0.0.1:8011/jira/dashboard/`
+- `http://127.0.0.1:8011/jira/query/`
+- `http://127.0.0.1:8011/jira/issues/`
+- `http://127.0.0.1:8011/jira/sync/`
+- `http://127.0.0.1:8011/sync2pod/`
+- `http://127.0.0.1:8011/integrations/`
+
+## Environment
+
+Jira sync uses these environment variables when live access is attempted:
+
+```bash
+JIRA_API_BASE_URL
+JIRA_API_TOKEN
+JIRA_AUTH_TYPE
+JIRA_USER_EMAIL
+```
+
+Known external limitation:
+
+- Jira live access can still return `403` with `The request is blocked.`
+- the UI surfaces this as an external blocker instead of hiding the failure
+
+## Tests
+
+Run the full workspace test suite:
+
+```bash
+.venv/bin/python manage.py test apps.jira_workspace.tests -v 2
 ```
 
 ## Project Structure
 
-```
+```text
 mtools/
-├── ui-preview/          # Frontend mock pages
-│   ├── index.html
-│   ├── jira-query.html
-│   ├── jira-issues.html
-│   ├── jira-sync.html
-│   ├── sync2pod.html
-│   ├── integrations.html
-│   └── dashboard.html
-├── apps/                # Django apps (legacy)
+├── apps/
+│   ├── jira_workspace/
 │   └── notion/
-├── mtools/              # Django project (legacy)
-│   ├── __init__.py
-│   ├── settings.py
-│   └── wsgi.py
-├── manage.py            # Django manage script
+├── mtools/
+├── static/
+│   └── jira_workspace/
+├── templates/
+│   └── jira_workspace/
+├── ui-preview/
+├── manage.py
 └── README.md
 ```
-
-## Design System
-
-### Colors
-
-- `--bg`: `#060b15` - Background
-- `--shell`: `rgba(8, 14, 27, 0.92)` - Shell background
-- `--surface`: `rgba(12, 21, 42, 0.86)` - Card background
-- `--line`: `rgba(129, 167, 255, 0.24)` - Border/line
-- `--text`: `#dce8ff` - Primary text
-- `--muted`: `#8ea8d8` - Secondary text
-- `--ok`: `#65ffbb` - Success/safe
-- `--warn`: `#ffce78` - Warning/partial
-- `--err`: `#ff8da0` - Error/failed
-- `--info`: `#8bb2ff` - Info/running
-
-### Typography
-
-- `--font-title`: "Space Grotesk", sans-serif - Headings
-- `--font-body`: "IBM Plex Sans", sans-serif - Body text
-- `--font-mono`: "IBM Plex Mono", monospace - Code/metrics
-
-### Component Patterns
-
-- **List-detail**: Shared table + drawer flow for data tools
-- **Execution panel**: Run / dry-run / logs / timeline for action tools
-- **Status badges**: Unified status vocabulary with visual semantics
-- **Progress bars**: Consistent job and transfer indicators
-- **KPI cards**: Single-value metrics with labels
-
-## Contributing
-
-This is a personal utility project for streamlined workflow management. Future additions will include:
-
-- Additional myscript tool integrations
-- Backend API connections for real data
-- Enhanced collaboration features
-- Custom dashboard configurations
-
-## License
-
-Personal use only.

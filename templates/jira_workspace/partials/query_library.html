@@ -1,0 +1,32 @@
+<div class="query-library">
+  {% for query in saved_queries %}
+    <article class="query-card">
+      <div class="query-card__header">
+        <h3 class="query-card__title">{{ query.name }}</h3>
+        <div class="query-card__flags">
+          {% if query.is_pinned %}
+            <span class="status-pill">Pinned</span>
+          {% endif %}
+          {% if query.is_starred %}
+            <span class="status-pill status-pill--accent">Starred</span>
+          {% endif %}
+        </div>
+      </div>
+      {% if query.description %}
+        <p class="query-card__description">{{ query.description }}</p>
+      {% endif %}
+      <dl class="meta-grid">
+        <div>
+          <dt>Profile</dt>
+          <dd>{{ query.profile.name|default:"-" }}</dd>
+        </div>
+        <div>
+          <dt>Sort</dt>
+          <dd>{{ query.sort_by|default:"updated_at" }} {{ query.sort_order|default:"desc" }}</dd>
+        </div>
+      </dl>
+    </article>
+  {% empty %}
+    <p class="empty-state">No saved queries yet.</p>
+  {% endfor %}
+</div>

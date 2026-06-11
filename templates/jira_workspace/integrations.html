@@ -7,26 +7,116 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Integrations</h1>
-      <p class="page-subtitle">Catalog view for tools and contracts, backed by real data in the next task.</p>
+      <p class="page-subtitle">Grouped tool catalog, contract coverage, and recent scan activity.</p>
     </div>
   </div>
 
+  <section class="panel panel--tight">
+    <div class="panel__header">
+      <h2 class="section-title">Catalog Search</h2>
+      <span class="status-pill status-pill--neutral">{{ integration_groups|length }} groups</span>
+    </div>
+    <form method="get" class="toolbar">
+      <input class="toolbar__search" type="search" name="query" value="{{ integration_query }}" placeholder="Search tool key, group, description" />
+    </form>
+  </section>
+
   <div class="stack">
-    {% for group in integration_groups %}
-      <section class="panel">
-        <div class="panel__header">
-          <h2 class="section-title">{{ group.name }}</h2>
-        </div>
-        <div class="workspace-card-grid workspace-card-grid--compact">
-          {% for item in group.items %}
-            <article class="workspace-card workspace-card--static">
-              <strong>{{ item.name }}</strong>
-              <span>{{ item.status }}</span>
-            </article>
+    <section class="panel">
+      <div class="panel__header">
+        <h2 class="section-title">Tool Catalog by Type</h2>
+      </div>
+      {% for group in integration_groups %}
+        <section class="group-stack">
+          <div class="panel__header">
+            <h3 class="section-title">{{ group.name }}</h3>
+          </div>
+          <div class="workspace-card-grid workspace-card-grid--compact">
+            {% for item in group.items %}
+              <article class="workspace-card workspace-card--static">
+                <div class="recent-item__top">
+                  <strong>{{ item.name }}</strong>
+                  <span class="status-pill status-pill--neutral">{{ item.readiness }}</span>
+                </div>
+                <div class="recent-item__summary">{{ item.description }}</div>
+                <div class="meta-inline">
+                  <span>Key: {{ item.key }}</span>
+                  <span>Code: {% if item.code_available %}available{% else %}missing{% endif %}</span>
+                </div>
+                {% if item.missing_fields %}
+                  <div class="meta-inline">
+                    <span>Missing: {{ item.missing_fields|join:", " }}</span>
+                  </div>
+                {% endif %}
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+      {% empty %}
+        <p class="empty-state">No tools match the current search.</p>
+      {% endfor %}
+    </section>
+
+    <section class="panel">
+      <div class="panel__header">
+        <h2 class="section-title">Contract Surface Matrix</h2>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Tool</th>
+            <th>Input</th>
+            <th>Output</th>
+            <th>Events</th>
+            <th>Readiness</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in integration_contract_rows %}
+            <tr>
+              <td>{{ row.name }}</td>
+              <td>{{ row.input_status }}</td>
+              <td>{{ row.output_status }}</td>
+              <td>{{ row.event_status }}</td>
+              <td>{{ row.readiness }}</td>
+              <td>
+                {% if row.missing_fields %}
+                  Missing {{ row.missing_fields|join:", " }}
+                {% elif row.notes %}
+                  {{ row.notes }}
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6">No contract data available.</td>
+            </tr>
           {% endfor %}
-        </div>
-      </section>
-    {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <div class="panel__header">
+        <h2 class="section-title">Recent Scan Activity</h2>
+      </div>
+      <div class="recent-list">
+        {% for run in integration_recent_runs %}
+          <article class="recent-item">
+            <div class="recent-item__top">
+              <span class="issue-key">{{ run.tool.name }}</span>
+              <span class="issue-status">{{ run.status }}</span>
+            </div>
+            <div class="recent-item__summary">{{ run.error_message|default:run.summary|default:"No summary recorded." }}</div>
+          </article>
+        {% empty %}
+          <p class="empty-state">No scan activity recorded yet.</p>
+        {% endfor %}
+      </div>
+    </section>
   </div>
 </section>
 {% endblock %}

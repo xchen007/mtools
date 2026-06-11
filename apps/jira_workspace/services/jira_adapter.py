@@ -37,13 +37,7 @@ class JiraAdapter:
 
     def fetch_current_user(self):
         payload = self._request("GET", "/rest/api/2/myself")
-        return (
-            payload.get("name")
-            or payload.get("key")
-            or payload.get("accountId")
-            or payload.get("emailAddress")
-            or ""
-        )
+        return self._identity_value(payload) or ""
 
     def fetch_issues(self, jql, page_size=50):
         start_at = 0
@@ -101,10 +95,10 @@ class JiraAdapter:
             "issue_key": issue.get("key", ""),
             "project_key": (fields.get("project") or {}).get("key", ""),
             "summary": fields.get("summary") or "",
-            "status": self._user_name(fields.get("status")),
-            "assignee": self._user_name(fields.get("assignee")),
-            "reporter": self._user_name(fields.get("reporter")),
-            "priority": self._user_name(fields.get("priority")),
+            "status": self._display_value(fields.get("status")),
+            "assignee": self._identity_value(fields.get("assignee")),
+            "reporter": self._identity_value(fields.get("reporter")),
+            "priority": self._display_value(fields.get("priority")),
             "updated_at": self._parse_datetime(fields.get("updated")),
             "created_at": self._parse_datetime(fields.get("created")),
             "sprint": self._extract_sprint(fields),
@@ -112,16 +106,25 @@ class JiraAdapter:
         }
 
     @staticmethod
-    def _user_name(value):
+    def _identity_value(value):
         if not value:
             return None
         if isinstance(value, dict):
             return (
                 value.get("name")
-                or value.get("displayName")
-                or value.get("emailAddress")
+                or value.get("key")
                 or value.get("accountId")
+                or value.get("emailAddress")
+                or value.get("displayName")
             )
+        return str(value)
+
+    @staticmethod
+    def _display_value(value):
+        if not value:
+            return None
+        if isinstance(value, dict):
+            return value.get("name") or value.get("displayName") or value.get("value")
         return str(value)
 
     @classmethod

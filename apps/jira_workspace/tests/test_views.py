@@ -3,7 +3,18 @@ from datetime import datetime, timedelta, timezone
 from django.test import TestCase
 from django.urls import reverse
 
-from jira_workspace.models import JiraIssue, JiraSavedQuery, JiraSyncProfile, JiraSyncRun
+from jira_workspace.models import (
+    IntegrationContract,
+    IntegrationScanRun,
+    IntegrationTool,
+    JiraIssue,
+    JiraSavedQuery,
+    JiraSyncProfile,
+    JiraSyncRun,
+    Sync2PodProfile,
+    Sync2PodRun,
+    Sync2PodWatchEvent,
+)
 
 
 class JiraWorkspaceDashboardViewTests(TestCase):
@@ -212,3 +223,193 @@ class JiraWorkspaceNavigationTests(TestCase):
 
         assert response.status_code == 302
         assert response.headers["Location"] == "/workspace/"
+
+    def test_workspace_home_renders_cross_tool_summary_cards_and_activity(self):
+        jira_profile = JiraSyncProfile.objects.create(
+            name="My Issues",
+            profile_type=JiraSyncProfile.ProfileType.MY_ISSUES,
+            params_json={"username": "xchen17"},
+            jql="assignee = currentUser() ORDER BY updated DESC",
+        )
+        JiraSyncRun.objects.create(
+            profile=jira_profile,
+            run_type=JiraSyncRun.RunType.INCREMENTAL,
+            status=JiraSyncRun.Status.SUCCESS,
+            started_at=datetime.now(timezone.utc) - timedelta(minutes=20),
+            finished_at=datetime.now(timezone.utc) - timedelta(minutes=19),
+            fetched_count=4,
+            inserted_count=1,
+            updated_count=2,
+            skipped_count=1,
+        )
+        sync2pod_profile = Sync2PodProfile.objects.create(
+            name="Primary Pod",
+            pod_name="pod-a",
+            namespace="sync",
+            watch_path="/tmp/watch",
+            command="sync2pod",
+        )
+        Sync2PodRun.objects.create(
+            profile=sync2pod_profile,
+            status=Sync2PodRun.Status.FAILED,
+            trigger=Sync2PodRun.Trigger.MANUAL,
+            command_line="sync2pod push",
+            exit_code=127,
+            error_message="sync2pod command is not available on this host.",
+        )
+        Sync2PodWatchEvent.objects.create(
+            profile=sync2pod_profile,
+            event_type=Sync2PodWatchEvent.EventType.FILE_CHANGED,
+            status=Sync2PodWatchEvent.Status.QUEUED,
+            file_path="src/module.py",
+            detail="queued after edit",
+        )
+        tool = IntegrationTool.objects.create(
+            key="sync2pod",
+            name="sync2pod",
+            group="Sync Ops",
+            readiness=IntegrationTool.Readiness.BETA,
+            description="Push local files into pods.",
+        )
+        IntegrationScanRun.objects.create(
+            tool=tool,
+            status=IntegrationScanRun.Status.SUCCESS,
+            summary="catalog refresh completed",
+        )
+
+        response = self.client.get("/workspace/")
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Workspace Overview" in content
+        assert "Jira Sync Runs" in content
+        assert "sync2pod Queue" in content
+        assert "Integration Scans" in content
+        assert "Cross-Tool Activity" in content
+        assert "catalog refresh completed" in content
+        assert "sync2pod command is not available on this host." in content
+
+
+class Sync2PodViewTests(TestCase):
+    def test_sync2pod_page_renders_persisted_profiles_runs_and_queue_state(self):
+        profile = Sync2PodProfile.objects.create(
+            name="Primary Pod",
+            pod_name="pod-a",
+            namespace="sync",
+            watch_path="/tmp/watch",
+            config_path="/tmp/sync2pod.yaml",
+            command="sync2pod",
+            extra_args="--delete",
+        )
+        Sync2PodRun.objects.create(
+            profile=profile,
+            status=Sync2PodRun.Status.SUCCESS,
+            trigger=Sync2PodRun.Trigger.MANUAL,
+            command_line="sync2pod push --delete",
+            exit_code=0,
+            stdout_log="synced 4 files",
+        )
+        Sync2PodWatchEvent.objects.create(
+            profile=profile,
+            event_type=Sync2PodWatchEvent.EventType.FILE_CHANGED,
+            status=Sync2PodWatchEvent.Status.QUEUED,
+            file_path="src/module.py",
+            detail="queued after edit",
+        )
+
+        response = self.client.get(reverse("jira_workspace:sync2pod"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Sync2pod Profiles" in content
+        assert "Recent Runs" in content
+        assert "Queued Watch Events" in content
+        assert "Primary Pod" in content
+        assert "pod-a" in content
+        assert "synced 4 files" in content
+        assert "src/module.py" in content
+
+    def test_sync2pod_page_renders_actionable_failure_state(self):
+        profile = Sync2PodProfile.objects.create(
+            name="Primary Pod",
+            pod_name="pod-a",
+            namespace="sync",
+            watch_path="/tmp/watch",
+            command="sync2pod",
+        )
+        Sync2PodRun.objects.create(
+            profile=profile,
+            status=Sync2PodRun.Status.FAILED,
+            trigger=Sync2PodRun.Trigger.MANUAL,
+            command_line="sync2pod push",
+            exit_code=127,
+            error_message="sync2pod command is not available on this host.",
+        )
+
+        response = self.client.get(reverse("jira_workspace:sync2pod"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Action Required" in content
+        assert "sync2pod command is not available on this host." in content
+
+
+class IntegrationsViewTests(TestCase):
+    def setUp(self):
+        jira_sync = IntegrationTool.objects.create(
+            key="jira-sync",
+            name="Jira Sync",
+            group="Issue Ops",
+            readiness=IntegrationTool.Readiness.READY,
+            description="Refreshes cached Jira issues.",
+        )
+        IntegrationContract.objects.create(
+            tool=jira_sync,
+            input_contract="profile + JQL",
+            output_contract="issue cache rows",
+            event_contract="sync runs",
+            notes="Stable contract surface.",
+        )
+        sync2pod = IntegrationTool.objects.create(
+            key="sync2pod",
+            name="sync2pod",
+            group="Sync Ops",
+            readiness=IntegrationTool.Readiness.BETA,
+            description="Push local files into pods.",
+        )
+        IntegrationContract.objects.create(
+            tool=sync2pod,
+            input_contract="watch path + pod target",
+            output_contract="transfer summary",
+            event_contract="",
+            notes="Event stream not wired yet.",
+        )
+        IntegrationScanRun.objects.create(
+            tool=sync2pod,
+            status=IntegrationScanRun.Status.FAILED,
+            summary="catalog refresh stalled on sync2pod metadata",
+            error_message="event stream contract missing",
+        )
+
+    def test_integrations_page_renders_catalog_matrix_and_recent_activity(self):
+        response = self.client.get(reverse("jira_workspace:integrations"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Tool Catalog by Type" in content
+        assert "Contract Surface Matrix" in content
+        assert "Recent Scan Activity" in content
+        assert "Issue Ops" in content
+        assert "Jira Sync" in content
+        assert "sync2pod" in content
+        assert "event stream contract missing" in content
+        assert "events" in content
+
+    def test_integrations_page_filters_catalog_by_query(self):
+        response = self.client.get(reverse("jira_workspace:integrations"), {"query": "pod"})
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "sync2pod" in content
+        assert "Push local files into pods." in content
+        assert "Refreshes cached Jira issues." not in content

@@ -1,6 +1,6 @@
 from django import forms
 
-from jira_workspace.models import JiraSavedQuery, JiraSyncProfile
+from jira_workspace.models import JiraSavedQuery, JiraSyncProfile, Sync2PodProfile
 
 
 class JiraIssueFilterForm(forms.Form):
@@ -51,4 +51,19 @@ class JiraSavedQueryForm(forms.ModelForm):
             "is_pinned",
             "sort_by",
             "sort_order",
+        ]
+
+
+class Sync2PodProfileForm(forms.ModelForm):
+    class Meta:
+        model = Sync2PodProfile
+        fields = [
+            "name",
+            "pod_name",
+            "namespace",
+            "watch_path",
+            "config_path",
+            "command",
+            "extra_args",
+            "is_enabled",
         ]

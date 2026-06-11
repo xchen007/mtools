@@ -1,7 +1,18 @@
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 
-from jira_workspace.models import JiraIssue, JiraSavedQuery, JiraSyncProfile, JiraSyncRun
+from jira_workspace.models import (
+    IntegrationContract,
+    IntegrationScanRun,
+    IntegrationTool,
+    JiraIssue,
+    JiraSavedQuery,
+    JiraSyncProfile,
+    JiraSyncRun,
+    Sync2PodProfile,
+    Sync2PodRun,
+    Sync2PodWatchEvent,
+)
 
 
 class JiraWorkspaceModelTests(TestCase):
@@ -87,3 +98,84 @@ class JiraWorkspaceModelTests(TestCase):
 
         assert profile.saved_queries.get() == query
         assert profile.sync_runs.get() == run
+
+    def test_sync2pod_profile_string_representation_uses_name(self):
+        profile = Sync2PodProfile.objects.create(
+            name="Primary Pod",
+            pod_name="pod-a",
+            namespace="sync",
+            watch_path="/tmp/watch",
+            command="sync2pod",
+            config_path="/tmp/sync2pod.yaml",
+        )
+
+        assert str(profile) == "Primary Pod"
+
+    def test_sync2pod_run_related_name_exposes_profile_runs(self):
+        profile = Sync2PodProfile.objects.create(
+            name="Primary Pod",
+            pod_name="pod-a",
+            namespace="sync",
+            watch_path="/tmp/watch",
+            command="sync2pod",
+        )
+        run = Sync2PodRun.objects.create(
+            profile=profile,
+            status=Sync2PodRun.Status.FAILED,
+            trigger=Sync2PodRun.Trigger.MANUAL,
+            command_line="sync2pod push",
+            exit_code=2,
+            error_message="Binary missing",
+        )
+
+        assert profile.runs.get() == run
+
+    def test_sync2pod_watch_event_related_names_link_profile_and_run(self):
+        profile = Sync2PodProfile.objects.create(
+            name="Primary Pod",
+            pod_name="pod-a",
+            namespace="sync",
+            watch_path="/tmp/watch",
+            command="sync2pod",
+        )
+        run = Sync2PodRun.objects.create(
+            profile=profile,
+            status=Sync2PodRun.Status.QUEUED,
+            trigger=Sync2PodRun.Trigger.WATCH,
+            command_line="sync2pod push --watch",
+        )
+        event = Sync2PodWatchEvent.objects.create(
+            profile=profile,
+            run=run,
+            event_type=Sync2PodWatchEvent.EventType.FILE_CHANGED,
+            status=Sync2PodWatchEvent.Status.QUEUED,
+            file_path="src/module.py",
+            detail="Detected local change",
+        )
+
+        assert profile.watch_events.get() == event
+        assert run.watch_events.get() == event
+
+    def test_integration_contract_and_scan_runs_are_linked_to_tool(self):
+        tool = IntegrationTool.objects.create(
+            key="sync2pod",
+            name="sync2pod",
+            group="Sync Ops",
+            readiness=IntegrationTool.Readiness.BETA,
+            description="Pod file sync orchestration.",
+        )
+        contract = IntegrationContract.objects.create(
+            tool=tool,
+            input_contract="local path + pod target",
+            output_contract="run summary",
+            event_contract="watch queue",
+            notes="Supports watch-triggered sync.",
+        )
+        run = IntegrationScanRun.objects.create(
+            tool=tool,
+            status=IntegrationScanRun.Status.SUCCESS,
+            summary="catalog refresh finished",
+        )
+
+        assert tool.contract == contract
+        assert tool.scan_runs.get() == run

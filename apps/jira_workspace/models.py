@@ -82,6 +82,24 @@ class JiraSyncRun(models.Model):
     error_message = models.TextField(blank=True, null=True)
 
 
+class JiraIssueSyncMembership(models.Model):
+    issue = models.ForeignKey(
+        JiraIssue, on_delete=models.CASCADE, related_name="sync_memberships"
+    )
+    profile = models.ForeignKey(
+        JiraSyncProfile, on_delete=models.CASCADE, related_name="issue_memberships"
+    )
+    last_seen_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["issue", "profile"],
+                name="jira_workspace_unique_issue_profile_membership",
+            )
+        ]
+
+
 class JiraSavedQuery(models.Model):
     name = models.CharField(max_length=120, unique=True)
     profile = models.ForeignKey(JiraSyncProfile, on_delete=models.CASCADE, related_name="saved_queries")
@@ -97,3 +115,141 @@ class JiraSavedQuery(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class Sync2PodProfile(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    pod_name = models.CharField(max_length=120)
+    namespace = models.CharField(max_length=120, default="default")
+    watch_path = models.CharField(max_length=255)
+    config_path = models.CharField(max_length=255, blank=True)
+    command = models.CharField(max_length=255, default="sync2pod")
+    extra_args = models.CharField(max_length=255, blank=True)
+    is_enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class Sync2PodRun(models.Model):
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Running"
+        SUCCESS = "success", "Success"
+        FAILED = "failed", "Failed"
+
+    class Trigger(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        WATCH = "watch", "Watch"
+
+    profile = models.ForeignKey(
+        Sync2PodProfile,
+        on_delete=models.CASCADE,
+        related_name="runs",
+    )
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.QUEUED)
+    trigger = models.CharField(max_length=32, choices=Trigger.choices, default=Trigger.MANUAL)
+    command_line = models.TextField(blank=True)
+    exit_code = models.IntegerField(blank=True, null=True)
+    stdout_log = models.TextField(blank=True)
+    stderr_log = models.TextField(blank=True)
+    error_message = models.TextField(blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+
+
+class Sync2PodWatchEvent(models.Model):
+    class EventType(models.TextChoices):
+        FILE_CHANGED = "file_changed", "File Changed"
+        MANUAL_TRIGGER = "manual_trigger", "Manual Trigger"
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        PROCESSED = "processed", "Processed"
+        FAILED = "failed", "Failed"
+
+    profile = models.ForeignKey(
+        Sync2PodProfile,
+        on_delete=models.CASCADE,
+        related_name="watch_events",
+    )
+    run = models.ForeignKey(
+        Sync2PodRun,
+        on_delete=models.SET_NULL,
+        related_name="watch_events",
+        blank=True,
+        null=True,
+    )
+    event_type = models.CharField(max_length=32, choices=EventType.choices)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.QUEUED)
+    file_path = models.CharField(max_length=255)
+    detail = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class IntegrationTool(models.Model):
+    class Readiness(models.TextChoices):
+        READY = "ready", "Ready"
+        BETA = "beta", "Beta"
+        PLANNED = "planned", "Planned"
+
+    key = models.CharField(max_length=80, unique=True)
+    name = models.CharField(max_length=120)
+    group = models.CharField(max_length=80)
+    readiness = models.CharField(max_length=32, choices=Readiness.choices)
+    description = models.TextField(blank=True)
+    is_enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["group", "name"]
+
+    def __str__(self):
+        return self.name
+
+
+class IntegrationContract(models.Model):
+    tool = models.OneToOneField(
+        IntegrationTool,
+        on_delete=models.CASCADE,
+        related_name="contract",
+    )
+    input_contract = models.CharField(max_length=255, blank=True)
+    output_contract = models.CharField(max_length=255, blank=True)
+    event_contract = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True)
+
+
+class IntegrationScanRun(models.Model):
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Running"
+        SUCCESS = "success", "Success"
+        FAILED = "failed", "Failed"
+
+    tool = models.ForeignKey(
+        IntegrationTool,
+        on_delete=models.CASCADE,
+        related_name="scan_runs",
+    )
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.QUEUED)
+    summary = models.CharField(max_length=255, blank=True)
+    error_message = models.TextField(blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["-started_at"]

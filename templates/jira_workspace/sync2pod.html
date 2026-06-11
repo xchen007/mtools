@@ -7,9 +7,25 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">sync2pod</h1>
-      <p class="page-subtitle">Execution and transfer visibility will be wired to real backend state in the next task.</p>
+      <p class="page-subtitle">Stored profiles, command capability, recent transfers, and queued watch events.</p>
     </div>
   </div>
+
+  {% if sync2pod_error_messages %}
+    <section class="panel panel--tight">
+      <div class="panel__header">
+        <h2 class="section-title">Action Required</h2>
+        <span class="status-pill status-pill--failed">Attention</span>
+      </div>
+      <div class="recent-list">
+        {% for message in sync2pod_error_messages %}
+          <article class="recent-item">
+            <div class="recent-item__summary">{{ message }}</div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
 
   <div class="workspace-card-grid workspace-card-grid--compact">
     {% for metric in sync2pod_metrics %}
@@ -18,6 +34,115 @@
         <span>{{ metric.label }}</span>
       </article>
     {% endfor %}
+  </div>
+
+  <div class="dashboard-grid">
+    <section class="panel">
+      <div class="panel__header">
+        <h2 class="section-title">Sync2pod Profiles</h2>
+        <span class="status-pill status-pill--neutral">{{ sync2pod_profiles|length }} profiles</span>
+      </div>
+      <div class="profile-list">
+        {% for profile in sync2pod_profiles %}
+          <article class="profile-card">
+            <div class="profile-card__header">
+              <h3 class="profile-card__title">{{ profile.name }}</h3>
+              <span class="status-pill {% if profile.is_enabled %}status-pill--success{% else %}status-pill--neutral{% endif %}">
+                {% if profile.is_enabled %}Enabled{% else %}Disabled{% endif %}
+              </span>
+            </div>
+            <dl class="meta-grid">
+              <div>
+                <dt>Pod</dt>
+                <dd>{{ profile.pod_name }}</dd>
+              </div>
+              <div>
+                <dt>Namespace</dt>
+                <dd>{{ profile.namespace }}</dd>
+              </div>
+              <div>
+                <dt>Watch Path</dt>
+                <dd class="meta-grid__code">{{ profile.watch_path }}</dd>
+              </div>
+              <div>
+                <dt>Command</dt>
+                <dd class="meta-grid__code">{{ profile.command }}</dd>
+              </div>
+            </dl>
+          </article>
+        {% empty %}
+          <p class="empty-state">No sync2pod profiles configured yet.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <aside class="dashboard-sidebar">
+      <section class="panel panel--tight">
+        <div class="panel__header">
+          <h2 class="section-title">Capability Check</h2>
+          <span class="status-pill {% if sync2pod_capability.is_available %}status-pill--success{% else %}status-pill--failed{% endif %}">
+            {% if sync2pod_capability.is_available %}Ready{% else %}Blocked{% endif %}
+          </span>
+        </div>
+        <div class="recent-list">
+          <article class="recent-item">
+            <div class="recent-item__top">
+              <span class="issue-key">Command</span>
+              <span class="issue-status">{{ sync2pod_capability.command_path }}</span>
+            </div>
+            <div class="recent-item__summary">
+              {% if sync2pod_capability.is_available %}
+                sync2pod command is available on this host.
+              {% else %}
+                {{ sync2pod_capability.message }}
+              {% endif %}
+            </div>
+          </article>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <div class="dashboard-grid">
+    <section class="panel">
+      <div class="panel__header">
+        <h2 class="section-title">Recent Runs</h2>
+        <span class="status-pill status-pill--neutral">{{ sync2pod_runs|length }} entries</span>
+      </div>
+      <div class="recent-list">
+        {% for run in sync2pod_runs %}
+          <article class="recent-item">
+            <div class="recent-item__top">
+              <span class="issue-key">{{ run.profile.name }}</span>
+              <span class="issue-status">{{ run.status }}</span>
+            </div>
+            <div class="recent-item__summary">{{ run.stdout_log|default:run.error_message|default:run.command_line|default:"No output recorded." }}</div>
+          </article>
+        {% empty %}
+          <p class="empty-state">No sync runs recorded yet.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__header">
+        <h2 class="section-title">Queued Watch Events</h2>
+        <span class="status-pill status-pill--neutral">{{ sync2pod_queued_events|length }} queued</span>
+      </div>
+      <div class="recent-list">
+        {% for event in sync2pod_queued_events %}
+          <article class="recent-item">
+            <div class="recent-item__top">
+              <span class="issue-key">{{ event.profile.name }}</span>
+              <span class="issue-status">{{ event.get_status_display|default:event.status }}</span>
+            </div>
+            <div class="recent-item__summary">{{ event.file_path }}{% if event.detail %} · {{ event.detail }}{% endif %}</div>
+          </article>
+        {% empty %}
+          <p class="empty-state">No queued watch events.</p>
+        {% endfor %}
+      </div>
+    </section>
   </div>
 </section>
 {% endblock %}

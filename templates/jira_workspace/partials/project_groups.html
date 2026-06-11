@@ -1,0 +1,17 @@
+<div class="project-group-list">
+  {% for item in group_items %}
+    <a
+      class="project-group"
+      href="{{ item.url|default:'#' }}"
+      data-partial-trigger
+      data-partial-target="#ticket-table-root"
+      data-partial-url="{{ item.url|default:'' }}"
+      data-source="{{ group_source|default:'' }}"
+    >
+      <span class="project-group__name">{% firstof item.project_key item.name item.project "Unknown Project" %}</span>
+      <span class="project-group__count">{% firstof item.issue_count item.count item.total 0 %}</span>
+    </a>
+  {% empty %}
+    <p class="empty-state">No projects available.</p>
+  {% endfor %}
+</div>
