@@ -1,0 +1,203 @@
+from datetime import datetime, timezone
+from unittest.mock import Mock
+
+from django.test import TestCase
+
+from jira_workspace.models import JiraIssue, JiraSyncProfile, JiraSyncRun
+from jira_workspace.services.sync_service import SyncService
+
+
+def build_issue_payload(*, key, updated_at, summary="Summary", status="To Do"):
+    return {
+        "issue_key": key,
+        "project_key": key.split("-", 1)[0],
+        "summary": summary,
+        "status": status,
+        "assignee": "xchen17",
+        "reporter": "reporter1",
+        "priority": "High",
+        "updated_at": datetime.fromisoformat(updated_at),
+        "created_at": datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc),
+        "sprint": "Sprint 42",
+        "raw_json": '{"key": "%s"}' % key,
+    }
+
+
+class JiraWorkspaceSyncServiceTests(TestCase):
+    def setUp(self):
+        self.adapter = Mock()
+        self.service = SyncService(jira_adapter=self.adapter)
+
+    def test_incremental_sync_inserts_a_new_issue(self):
+        profile = JiraSyncProfile.objects.create(
+            name="My Issues",
+            profile_type=JiraSyncProfile.ProfileType.MY_ISSUES,
+            params_json={},
+            jql="",
+        )
+        self.adapter.fetch_current_user.return_value = "xchen17"
+        self.adapter.fetch_issues.return_value = [
+            build_issue_payload(
+                key="TESS-321",
+                updated_at="2026-06-12T08:30:00+00:00",
+                summary="Refine query presets",
+                status="In Progress",
+            )
+        ]
+
+        result = self.service.incremental_sync(profile)
+
+        issue = JiraIssue.objects.get(issue_key="TESS-321")
+        profile.refresh_from_db()
+        assert result.fetched_count == 1
+        assert result.inserted_count == 1
+        assert result.updated_count == 0
+        assert result.skipped_count == 0
+        assert issue.reporter == "reporter1"
+        assert issue.priority == "High"
+        assert profile.last_cursor == "2026-06-12T08:30:00+00:00"
+        assert profile.last_incremental_sync_at is not None
+
+    def test_incremental_sync_updates_existing_issue_when_updated_at_changes(self):
+        JiraIssue.objects.create(
+            issue_key="TESS-321",
+            project_key="TESS",
+            summary="Old summary",
+            status="To Do",
+            assignee="xchen17",
+            reporter="reporter1",
+            priority="Medium",
+            sprint="Sprint 41",
+            updated_at="2026-06-10T08:30:00+00:00",
+            created_at="2026-06-01T09:00:00+00:00",
+            raw_json='{"key":"TESS-321","version":"old"}',
+            last_seen_at="2026-06-10T08:30:00+00:00",
+        )
+        profile = JiraSyncProfile.objects.create(
+            name="Project TESS",
+            profile_type=JiraSyncProfile.ProfileType.PROJECT,
+            params_json={"project_key": "TESS"},
+            jql="",
+        )
+        self.adapter.fetch_issues.return_value = [
+            build_issue_payload(
+                key="TESS-321",
+                updated_at="2026-06-12T08:30:00+00:00",
+                summary="New summary",
+                status="Done",
+            )
+        ]
+
+        result = self.service.incremental_sync(profile)
+
+        issue = JiraIssue.objects.get(issue_key="TESS-321")
+        assert result.updated_count == 1
+        assert issue.summary == "New summary"
+        assert issue.status == "Done"
+        assert issue.updated_at.isoformat() == "2026-06-12T08:30:00+00:00"
+        assert issue.priority == "High"
+
+    def test_incremental_sync_increments_skipped_count_for_unchanged_issue(self):
+        JiraIssue.objects.create(
+            issue_key="TESS-321",
+            project_key="TESS",
+            summary="Stable summary",
+            status="In Progress",
+            assignee="xchen17",
+            reporter="reporter1",
+            priority="High",
+            sprint="Sprint 42",
+            updated_at="2026-06-12T08:30:00+00:00",
+            created_at="2026-06-01T09:00:00+00:00",
+            raw_json='{"key":"TESS-321"}',
+            last_seen_at="2026-06-12T08:30:00+00:00",
+        )
+        profile = JiraSyncProfile.objects.create(
+            name="Custom Filter",
+            profile_type=JiraSyncProfile.ProfileType.CUSTOM_JQL,
+            params_json={"jql": 'project = "TESS"'},
+            jql='project = "TESS"',
+        )
+        self.adapter.fetch_issues.return_value = [
+            build_issue_payload(
+                key="TESS-321",
+                updated_at="2026-06-12T08:30:00+00:00",
+                summary="Stable summary",
+                status="In Progress",
+            )
+        ]
+
+        result = self.service.incremental_sync(profile)
+
+        assert result.inserted_count == 0
+        assert result.updated_count == 0
+        assert result.skipped_count == 1
+
+    def test_build_jql_differs_for_supported_profile_types(self):
+        my_profile = JiraSyncProfile(
+            name="Mine",
+            profile_type=JiraSyncProfile.ProfileType.MY_ISSUES,
+            params_json={},
+            jql="",
+        )
+        project_profile = JiraSyncProfile(
+            name="Project",
+            profile_type=JiraSyncProfile.ProfileType.PROJECT,
+            params_json={"project_key": "TESS"},
+            jql="",
+        )
+        custom_profile = JiraSyncProfile(
+            name="Custom",
+            profile_type=JiraSyncProfile.ProfileType.CUSTOM_JQL,
+            params_json={"jql": 'project = "OPS" AND status = "Done"'},
+            jql="",
+        )
+        self.adapter.fetch_current_user.return_value = "xchen17"
+
+        my_jql = self.service.build_jql(my_profile)
+        project_jql = self.service.build_jql(project_profile)
+        custom_jql = self.service.build_jql(custom_profile)
+
+        assert my_jql == 'assignee = "xchen17" ORDER BY updated DESC'
+        assert project_jql == 'project = "TESS" ORDER BY updated DESC'
+        assert custom_jql == 'project = "OPS" AND status = "Done"'
+
+    def test_incremental_sync_persists_base_profile_jql_without_cursor_clause(self):
+        profile = JiraSyncProfile.objects.create(
+            name="Project TESS",
+            profile_type=JiraSyncProfile.ProfileType.PROJECT,
+            params_json={"project_key": "TESS"},
+            jql="",
+            last_cursor="2026-06-11T08:30:00+00:00",
+        )
+        self.adapter.fetch_issues.return_value = []
+
+        self.service.incremental_sync(profile)
+
+        profile.refresh_from_db()
+        assert profile.jql == 'project = "TESS" ORDER BY updated DESC'
+
+    def test_full_sync_writes_success_sync_run(self):
+        profile = JiraSyncProfile.objects.create(
+            name="Project TESS",
+            profile_type=JiraSyncProfile.ProfileType.PROJECT,
+            params_json={"project_key": "TESS"},
+            jql="",
+        )
+        self.adapter.fetch_issues.return_value = [
+            build_issue_payload(
+                key="TESS-999",
+                updated_at="2026-06-12T08:30:00+00:00",
+            )
+        ]
+
+        result = self.service.full_sync(profile)
+
+        run = JiraSyncRun.objects.get(profile=profile)
+        profile.refresh_from_db()
+        assert result.inserted_count == 1
+        assert run.run_type == JiraSyncRun.RunType.FULL
+        assert run.status == JiraSyncRun.Status.SUCCESS
+        assert run.finished_at is not None
+        assert run.fetched_count == 1
+        assert profile.last_full_sync_at is not None
