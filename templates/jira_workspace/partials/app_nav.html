@@ -1,0 +1,38 @@
+<aside class="app-nav">
+  <div class="app-brand">mtools</div>
+  <div class="workspace-chip">
+    Workspace: core
+    <br>
+    Mode: Django
+  </div>
+  <nav class="nav-group" aria-label="Workspace">
+    <a class="nav-link{% if request.resolver_match.url_name == 'workspace_home' %} active{% endif %}" href="{% url 'jira_workspace:workspace_home' %}">
+      <span>Workspace</span>
+      <span class="nav-badge">Home</span>
+    </a>
+    <a class="nav-link{% if request.resolver_match.url_name == 'dashboard' %} active{% endif %}" href="{% url 'jira_workspace:dashboard' %}">
+      <span>Jira Dashboard</span>
+      <span class="nav-badge">Jira</span>
+    </a>
+    <a class="nav-link{% if request.resolver_match.url_name == 'query' or request.resolver_match.url_name == 'queries' %} active{% endif %}" href="{% url 'jira_workspace:query' %}">
+      <span>Jira Query</span>
+      <span class="nav-badge">Query</span>
+    </a>
+    <a class="nav-link{% if request.resolver_match.url_name == 'issues' %} active{% endif %}" href="{% url 'jira_workspace:issues' %}">
+      <span>Jira Issues</span>
+      <span class="nav-badge">List</span>
+    </a>
+    <a class="nav-link{% if request.resolver_match.url_name == 'sync' or request.resolver_match.url_name == 'profiles' %} active{% endif %}" href="{% url 'jira_workspace:sync' %}">
+      <span>Jira Sync</span>
+      <span class="nav-badge">Sync</span>
+    </a>
+    <a class="nav-link{% if request.resolver_match.url_name == 'sync2pod' %} active{% endif %}" href="{% url 'jira_workspace:sync2pod' %}">
+      <span>sync2pod</span>
+      <span class="nav-badge">Exec</span>
+    </a>
+    <a class="nav-link{% if request.resolver_match.url_name == 'integrations' %} active{% endif %}" href="{% url 'jira_workspace:integrations' %}">
+      <span>Integrations</span>
+      <span class="nav-badge">Catalog</span>
+    </a>
+  </nav>
+</aside>

@@ -1,0 +1,6 @@
+<header class="workspace-topbar">
+  <input class="workspace-command" type="text" placeholder="Search issues, tools, runs..." aria-label="Workspace search">
+  <button class="workspace-button" type="button">{{ shell_quick_action|default:"Quick Action" }}</button>
+  <span class="workspace-env">{{ shell_env_label|default:"ENV: LOCAL" }}</span>
+  <div class="workspace-profile">{{ shell_user|default:"user" }}</div>
+</header>

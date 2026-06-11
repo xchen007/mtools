@@ -1,0 +1,32 @@
+{% extends "jira_workspace/base.html" %}
+
+{% block title %}Integrations | mtools{% endblock %}
+
+{% block content %}
+<section class="page-section">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Integrations</h1>
+      <p class="page-subtitle">Catalog view for tools and contracts, backed by real data in the next task.</p>
+    </div>
+  </div>
+
+  <div class="stack">
+    {% for group in integration_groups %}
+      <section class="panel">
+        <div class="panel__header">
+          <h2 class="section-title">{{ group.name }}</h2>
+        </div>
+        <div class="workspace-card-grid workspace-card-grid--compact">
+          {% for item in group.items %}
+            <article class="workspace-card workspace-card--static">
+              <strong>{{ item.name }}</strong>
+              <span>{{ item.status }}</span>
+            </article>
+          {% endfor %}
+        </div>
+      </section>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

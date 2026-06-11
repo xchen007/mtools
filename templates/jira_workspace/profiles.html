@@ -1,0 +1,53 @@
+{% extends "jira_workspace/base.html" %}
+
+{% block title %}Jira Sync | mtools{% endblock %}
+
+{% block content %}
+<section class="page-section">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Jira Sync</h1>
+      <p class="page-subtitle">Manage sync scopes and inspect recent ingestion runs.</p>
+    </div>
+  </div>
+
+  <div class="stack">
+    <section class="panel">
+      <div class="panel__header">
+        <h2 class="section-title">Profiles</h2>
+      </div>
+      <div class="profile-list">
+        {% for profile in profiles %}
+          <article class="profile-card">
+            <div class="profile-card__header">
+              <h3 class="profile-card__title">{{ profile.name }}</h3>
+              {% if profile.is_default %}
+                <span class="status-pill status-pill--neutral">Default</span>
+              {% endif %}
+            </div>
+            <dl class="meta-grid">
+              <div>
+                <dt>Type</dt>
+                <dd>{{ profile.get_profile_type_display|default:profile.profile_type }}</dd>
+              </div>
+              <div>
+                <dt>JQL</dt>
+                <dd class="meta-grid__code">{{ profile.jql|default:"-" }}</dd>
+              </div>
+            </dl>
+          </article>
+        {% empty %}
+          <p class="empty-state">No sync profiles configured yet.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__header">
+        <h2 class="section-title">Recent Sync Runs</h2>
+      </div>
+      {% include "jira_workspace/partials/sync_runs.html" with sync_runs=sync_runs %}
+    </section>
+  </div>
+</section>
+{% endblock %}

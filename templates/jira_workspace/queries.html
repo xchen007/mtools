@@ -1,0 +1,21 @@
+{% extends "jira_workspace/base.html" %}
+
+{% block title %}Jira Query | mtools{% endblock %}
+
+{% block content %}
+<section class="page-section">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Jira Query</h1>
+      <p class="page-subtitle">Pinned and reusable Jira filters for day-to-day triage.</p>
+    </div>
+  </div>
+
+  <section class="panel">
+    <div class="panel__header">
+      <h2 class="section-title">Query Library</h2>
+    </div>
+    {% include "jira_workspace/partials/query_library.html" with saved_queries=saved_queries %}
+  </section>
+</section>
+{% endblock %}

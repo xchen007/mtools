@@ -1,0 +1,42 @@
+{% extends "jira_workspace/base.html" %}
+
+{% block title %}Workspace | mtools{% endblock %}
+
+{% block content %}
+<section class="page-section">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Workspace</h1>
+      <p class="page-subtitle">Operational entry points for Jira, sync2pod, and integrations.</p>
+    </div>
+  </div>
+
+  <section class="workspace-card-grid">
+    {% for card in workspace_cards %}
+      <a class="workspace-card" href="{{ card.href }}">
+        <strong>{{ card.title }}</strong>
+        <span>{{ card.description }}</span>
+      </a>
+    {% endfor %}
+  </section>
+
+  <section class="panel">
+    <div class="panel__header">
+      <h2 class="section-title">Recent Runs</h2>
+    </div>
+    <div class="recent-list">
+      {% for run in recent_runs %}
+        <article class="recent-item">
+          <div class="recent-item__top">
+            <span class="issue-key">{{ run.profile.name }}</span>
+            <span class="issue-status">{{ run.status }}</span>
+          </div>
+          <div class="recent-item__summary">{{ run.run_type }} sync fetched {{ run.fetched_count }} issues.</div>
+        </article>
+      {% empty %}
+        <p class="empty-state">No recent runs available.</p>
+      {% endfor %}
+    </div>
+  </section>
+</section>
+{% endblock %}

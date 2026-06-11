@@ -1,0 +1,22 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ shell_title|default:"mtools" }} | mtools{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'jira_workspace/jira.css' %}">
+</head>
+<body class="workspace-body">
+  <div class="app-shell">
+    {% include "jira_workspace/partials/app_nav.html" %}
+    <main class="app-main">
+      {% include "jira_workspace/partials/topbar.html" %}
+      <div class="workspace-breadcrumb">{{ shell_breadcrumb|default:"Workspace" }}</div>
+      {% block content %}{% endblock %}
+    </main>
+    {% include "jira_workspace/partials/app_rail.html" %}
+  </div>
+  <script src="{% static 'jira_workspace/jira.js' %}"></script>
+</body>
+</html>
