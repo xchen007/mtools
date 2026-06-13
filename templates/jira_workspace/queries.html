@@ -11,42 +11,126 @@
     </div>
   </div>
 
-  <div class="dashboard-grid">
+  <div class="dashboard-grid dashboard-grid--main-first">
     <section class="panel">
       <div class="panel__header">
         <h2 class="section-title">Query Library</h2>
         <span class="status-pill status-pill--neutral">{{ saved_queries|length }} saved</span>
       </div>
-      {% include "jira_workspace/partials/query_library.html" with saved_queries=saved_queries %}
+      {% include "jira_workspace/partials/query_library.html" with saved_queries=saved_queries selected_query=selected_query %}
     </section>
 
-    <section class="panel panel--tight">
-      <div class="panel__header">
-        <h2 class="section-title">Project Filter</h2>
-      </div>
-      {% if selected_query %}
-        <div class="recent-list">
-          <article class="recent-item">
-            <div class="recent-item__top">
-              <span class="issue-key">JQL</span>
-              <span class="issue-status">{{ selected_query.profile.name }}</span>
-            </div>
-            <div class="recent-item__summary">{{ selected_query.description|default:"Reusable query configuration." }}</div>
-            <pre class="meta-grid__code">{{ selected_query.jql_text|default:selected_query.profile.jql|default:"-"|safe }}</pre>
-          </article>
-          {% for item in selected_query_filters %}
+    <aside class="dashboard-sidebar">
+      <section class="panel panel--tight">
+        <div class="panel__header">
+          <h2 class="section-title">Query Details</h2>
+        </div>
+        {% if selected_query %}
+          <div class="recent-list">
             <article class="recent-item">
               <div class="recent-item__top">
-                <span class="issue-key">{{ item.label }}</span>
-                <span class="issue-status">{{ item.value }}</span>
+                <span class="issue-key">JQL</span>
+                <span class="issue-status">{{ selected_query.profile.name }}</span>
               </div>
+              <div class="recent-item__summary">{{ selected_query.description|default:"Reusable query configuration." }}</div>
+              <pre class="meta-grid__code">{{ selected_query.jql_text|default:selected_query.profile.jql|default:"-" }}</pre>
             </article>
-          {% endfor %}
-        </div>
-      {% else %}
-        <p class="empty-state">No query selected.</p>
-      {% endif %}
+            {% for item in selected_query_filters %}
+              <article class="recent-item">
+                <div class="recent-item__top">
+                  <span class="issue-key">{{ item.label }}</span>
+                  <span class="issue-status">{{ item.value }}</span>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="empty-state">No query selected.</p>
+        {% endif %}
+      </section>
+    </aside>
+  </div>
+
+  <div class="dashboard-grid dashboard-grid--main-first">
+    <section class="panel">
+      <div class="panel__header">
+        <h2 class="section-title">Query Results</h2>
+        <span class="status-pill status-pill--neutral">{{ query_rows|length }} rows</span>
+      </div>
+      {% include "jira_workspace/partials/ticket_table.html" with ticket_rows=query_rows %}
     </section>
+
+    <aside class="dashboard-sidebar">
+      <section class="panel panel--tight">
+        <div class="panel__header">
+          <h2 class="section-title">Query Editor</h2>
+        </div>
+        <form method="post" class="config-form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="save_query">
+          {% if selected_query %}
+            <input type="hidden" name="saved_query_id" value="{{ selected_query.id }}">
+          {% endif %}
+          <div class="form-grid">
+            <label>
+              <span>Name</span>
+              <input type="text" name="name" value="{{ query_form.name.value|default:'' }}" required>
+            </label>
+            <label>
+              <span>Profile</span>
+              <select name="profile" required>
+                {% for value, label in query_form.fields.profile.choices %}
+                  <option value="{{ value }}"{% if query_form.profile.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              <span>Project Filters</span>
+              <input type="text" name="project_values" value="{{ query_form.project_values.value|default:'' }}" placeholder="OPS, TESS">
+            </label>
+            <label>
+              <span>Status Filters</span>
+              <input type="text" name="status_values" value="{{ query_form.status_values.value|default:'' }}" placeholder="Blocked, Review">
+            </label>
+            <label>
+              <span>Sort By</span>
+              <select name="sort_by">
+                {% for value, label in query_form.fields.sort_by.choices %}
+                  <option value="{{ value }}"{% if query_form.sort_by.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              <span>Sort Order</span>
+              <select name="sort_order">
+                {% for value, label in query_form.fields.sort_order.choices %}
+                  <option value="{{ value }}"{% if query_form.sort_order.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              <span>Description</span>
+              <input type="text" name="description" value="{{ query_form.description.value|default:'' }}">
+            </label>
+            <label>
+              <span>JQL</span>
+              <input type="text" name="jql_text" value="{{ query_form.jql_text.value|default:'' }}">
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" name="is_pinned" {% if query_form.is_pinned.value %}checked{% endif %}>
+              <span>Pinned</span>
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" name="is_starred" {% if query_form.is_starred.value %}checked{% endif %}>
+              <span>Starred</span>
+            </label>
+          </div>
+          <div class="toolbar toolbar--actions">
+            <button type="submit">Save Query</button>
+          </div>
+        </form>
+      </section>
+    </aside>
   </div>
 </section>
 {% endblock %}

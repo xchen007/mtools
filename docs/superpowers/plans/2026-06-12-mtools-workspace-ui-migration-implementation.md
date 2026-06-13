@@ -1,6 +1,6 @@
 # mtools Workspace UI Migration Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Migrate all `ui-preview/*.html` pages into the Django app, wire them to real backend behavior, and deliver a testable workspace UI for Jira, sync2pod, and integrations.
 
@@ -69,14 +69,14 @@
 - Modify: `static/jira_workspace/jira.js`
 - Test: `apps/jira_workspace/tests/test_views.py`
 
-- [ ] Add failing route/render tests for `/`, `/workspace/`, `/jira/issues/`, `/jira/sync/`, `/sync2pod/`, and `/integrations/`.
-- [ ] Run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_views -v 2 ` and verify the new assertions fail for missing routes or missing template content.
-- [ ] Refactor the base template into the shared shell from the preview spec, including left nav, topbar, breadcrumb slot, and right rail.
-- [ ] Wire the root redirect and all new routes in `mtools/urls.py` and `apps/jira_workspace/urls.py`.
-- [ ] Move shared layout and component styles from preview pages into `static/jira_workspace/jira.css`, keeping one common token system instead of per-page inline CSS.
-- [ ] Add the minimum JS hooks needed for nav state, rail refresh placeholders, and shared partial loading behavior without hardcoding page-specific mock data.
-- [ ] Re-run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_views -v 2 ` and verify route/render coverage passes.
-- [ ] Commit with `git commit -m "feat: build workspace shell and route map"`.
+- [x] Add failing route/render tests for `/`, `/workspace/`, `/jira/issues/`, `/jira/sync/`, `/sync2pod/`, and `/integrations/`.
+- [x] Run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_views -v 2 ` and verify the new assertions fail for missing routes or missing template content.
+- [x] Refactor the base template into the shared shell from the preview spec, including left nav, topbar, breadcrumb slot, and right rail.
+- [x] Wire the root redirect and all new routes in `mtools/urls.py` and `apps/jira_workspace/urls.py`.
+- [x] Move shared layout and component styles from preview pages into `static/jira_workspace/jira.css`, keeping one common token system instead of per-page inline CSS.
+- [x] Add the minimum JS hooks needed for nav state, rail refresh placeholders, and shared partial loading behavior without hardcoding page-specific mock data.
+- [x] Re-run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_views -v 2 ` and verify route/render coverage passes.
+- [x] Commit with `git commit -m "feat: build workspace shell and route map"`.
 
 ### Task 2: Migrate Jira pages to the new UI and complete the Jira workflow
 
@@ -95,13 +95,13 @@
 - Modify: `apps/jira_workspace/tests/test_views.py`
 - Modify: `apps/jira_workspace/tests/test_sync_service.py`
 
-- [ ] Add failing tests for the Jira page set: dashboard summary rendering, query page library/filter rendering, issues page list/filter rendering, and sync page profile/run rendering.
-- [ ] Run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_views apps.jira_workspace.tests.test_sync_service -v 2 ` and verify the new expectations fail.
-- [ ] Keep existing Jira local-cache architecture, but split the old `queries` and `profiles` behavior into the new `jira/query`, `jira/issues`, and `jira/sync` pages.
-- [ ] Extend service/view context so the new pages render real saved-query data, issue filters, sync profiles, sync history, and Jira external-blocker error states.
-- [ ] Replace the minimal templates with preview-aligned layouts while preserving real Django data bindings and existing partial-based result rendering.
-- [ ] Re-run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_views apps.jira_workspace.tests.test_sync_service -v 2 ` and verify the Jira workflow tests pass.
-- [ ] Commit with `git commit -m "feat: migrate jira workflow pages"`.
+- [x] Add failing tests for the Jira page set: dashboard summary rendering, query page library/filter rendering, issues page list/filter rendering, and sync page profile/run rendering.
+- [x] Run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_views apps.jira_workspace.tests.test_sync_service -v 2 ` and verify the new expectations fail.
+- [x] Keep existing Jira local-cache architecture, but split the old `queries` and `profiles` behavior into the new `jira/query`, `jira/issues`, and `jira/sync` pages.
+- [x] Extend service/view context so the new pages render real saved-query data, issue filters, sync profiles, sync history, and Jira external-blocker error states.
+- [x] Replace the minimal templates with preview-aligned layouts while preserving real Django data bindings and existing partial-based result rendering.
+- [x] Re-run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_views apps.jira_workspace.tests.test_sync_service -v 2 ` and verify the Jira workflow tests pass.
+- [x] Commit with `git commit -m "feat: migrate jira workflow pages"`.
 
 ### Task 3: Add real sync2pod persistence, service logic, and UI
 
@@ -115,13 +115,13 @@
 - Modify: `apps/jira_workspace/tests/test_views.py`
 - Create: `apps/jira_workspace/migrations/0003_workspace_models.py`
 
-- [ ] Add failing model, service, and view tests for sync2pod profiles, run logging, capability checks, page rendering, and failure-state rendering.
-- [ ] Run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_models apps.jira_workspace.tests.test_sync2pod_service apps.jira_workspace.tests.test_views -v 2 ` and verify sync2pod expectations fail because models/services/routes are missing.
-- [ ] Add persistent models for sync2pod profiles, runs, and watch events in `models.py`, plus the migration.
-- [ ] Add forms/service methods for config CRUD, capability checks, run creation, and log/status summaries using real command execution wrappers where available.
-- [ ] Implement the sync2pod page and view context so the preview sections show real stored configs, recent runs, queue state, and actionable error messages.
-- [ ] Re-run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_models apps.jira_workspace.tests.test_sync2pod_service apps.jira_workspace.tests.test_views -v 2 ` and verify sync2pod coverage passes.
-- [ ] Commit with `git commit -m "feat: add sync2pod backend and page"`.
+- [x] Add failing model, service, and view tests for sync2pod profiles, run logging, capability checks, page rendering, and failure-state rendering.
+- [x] Run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_models apps.jira_workspace.tests.test_sync2pod_service apps.jira_workspace.tests.test_views -v 2 ` and verify sync2pod expectations fail because models/services/routes are missing.
+- [x] Add persistent models for sync2pod profiles, runs, and watch events in `models.py`, plus the migration.
+- [x] Add forms/service methods for config CRUD, capability checks, run creation, and log/status summaries using real command execution wrappers where available.
+- [x] Implement the sync2pod page and view context so the preview sections show real stored configs, recent runs, queue state, and actionable error messages.
+- [x] Re-run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_models apps.jira_workspace.tests.test_sync2pod_service apps.jira_workspace.tests.test_views -v 2 ` and verify sync2pod coverage passes.
+- [x] Commit with `git commit -m "feat: add sync2pod backend and page"`.
 
 ### Task 4: Add integrations registry persistence, service logic, and UI
 
@@ -134,13 +134,13 @@
 - Modify: `apps/jira_workspace/tests/test_views.py`
 - Modify: `apps/jira_workspace/migrations/0003_workspace_models.py`
 
-- [ ] Add failing model, service, and view tests for integration tool records, contract matrix output, grouped catalog rendering, search behavior, and readiness display.
-- [ ] Run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_models apps.jira_workspace.tests.test_integrations_service apps.jira_workspace.tests.test_views -v 2 ` and verify integrations expectations fail.
-- [ ] Add persistent integration tool, contract, and scan-run models, reusing the same migration task if Task 3 has already introduced `0003_workspace_models.py`.
-- [ ] Implement a lightweight integrations service that builds the catalog from persisted records and code-available metadata instead of template literals.
-- [ ] Implement the integrations page so grouped tools, matrix rows, and recent scan events come from real service output.
-- [ ] Re-run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_models apps.jira_workspace.tests.test_integrations_service apps.jira_workspace.tests.test_views -v 2 ` and verify integrations coverage passes.
-- [ ] Commit with `git commit -m "feat: add integrations catalog backend and page"`.
+- [x] Add failing model, service, and view tests for integration tool records, contract matrix output, grouped catalog rendering, search behavior, and readiness display.
+- [x] Run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_models apps.jira_workspace.tests.test_integrations_service apps.jira_workspace.tests.test_views -v 2 ` and verify integrations expectations fail.
+- [x] Add persistent integration tool, contract, and scan-run models, reusing the same migration task if Task 3 has already introduced `0003_workspace_models.py`.
+- [x] Implement a lightweight integrations service that builds the catalog from persisted records and code-available metadata instead of template literals.
+- [x] Implement the integrations page so grouped tools, matrix rows, and recent scan events come from real service output.
+- [x] Re-run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_models apps.jira_workspace.tests.test_integrations_service apps.jira_workspace.tests.test_views -v 2 ` and verify integrations coverage passes.
+- [x] Commit with `git commit -m "feat: add integrations catalog backend and page"`.
 
 ### Task 5: Build the workspace home aggregator, integrate cross-tool rail data, and verify the full stack
 
@@ -153,15 +153,15 @@
 - Create: `apps/jira_workspace/tests/test_workspace_service.py`
 - Modify: `README.md`
 
-- [ ] Add failing tests for the workspace home page summary cards, cross-tool recent runs, health data, and root redirect behavior.
-- [ ] Run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_views apps.jira_workspace.tests.test_workspace_service -v 2 ` and verify the new workspace assertions fail.
-- [ ] Implement a workspace aggregation service that combines Jira sync runs, sync2pod runs, and integrations scan activity into one view model.
-- [ ] Build the workspace home template to match the preview information hierarchy with real aggregate data instead of mock arrays.
-- [ ] Update the shared right rail so it can render cross-tool activity and health in a consistent way across pages.
-- [ ] Update `README.md` with the real UI route map and startup/verification steps for the migrated workspace.
-- [ ] Run the full app test suite with ` .venv/bin/python manage.py test apps.jira_workspace.tests -v 2 `.
-- [ ] Start a local dev server on an open port, verify all target routes open, and capture any external blockers such as Jira 403 responses.
-- [ ] Commit with `git commit -m "feat: complete workspace ui migration"` if verification is green aside from documented external blockers.
+- [x] Add failing tests for the workspace home page summary cards, cross-tool recent runs, health data, and root redirect behavior.
+- [x] Run ` .venv/bin/python manage.py test apps.jira_workspace.tests.test_views apps.jira_workspace.tests.test_workspace_service -v 2 ` and verify the new workspace assertions fail.
+- [x] Implement a workspace aggregation service that combines Jira sync runs, sync2pod runs, and integrations scan activity into one view model.
+- [x] Build the workspace home template to match the preview information hierarchy with real aggregate data instead of mock arrays.
+- [x] Update the shared right rail so it can render cross-tool activity and health in a consistent way across pages.
+- [x] Update `README.md` with the real UI route map and startup/verification steps for the migrated workspace.
+- [x] Run the full app test suite with ` .venv/bin/python manage.py test apps.jira_workspace.tests -v 2 `.
+- [x] Start a local dev server on an open port, verify all target routes open, and capture any external blockers such as Jira 403 responses.
+- [x] Commit with `git commit -m "feat: complete workspace ui migration"` if verification is green aside from documented external blockers.
 
 ---
 

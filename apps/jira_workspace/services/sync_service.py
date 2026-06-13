@@ -208,11 +208,21 @@ class SyncService:
         if profile.profile_type != JiraSyncProfile.ProfileType.MY_ISSUES:
             return
 
-        username = self._jira_client().fetch_current_user()
+        params_json = dict(profile.params_json or {})
+        stored_username = (params_json.get("username") or "").strip()
+
+        try:
+            username = self._jira_client().fetch_current_user()
+        except Exception:
+            if stored_username:
+                return
+            raise
+
         if not username:
+            if stored_username:
+                return
             raise ValueError("Unable to resolve Jira username for my_issues profile.")
 
-        params_json = dict(profile.params_json or {})
         params_json["username"] = username
         profile.params_json = params_json
 
@@ -255,7 +265,11 @@ class SyncService:
     @staticmethod
     def _is_external_blocker_error(message):
         normalized = (message or "").lower()
-        return "403" in normalized and "the request is blocked" in normalized
+        return "403" in normalized and (
+            "the request is blocked" in normalized
+            or "forbidden" in normalized
+            or "access denied" in normalized
+        )
 
     def _jira_client(self):
         if self.jira is None:

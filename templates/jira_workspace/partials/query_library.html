@@ -1,6 +1,6 @@
 <div class="query-library">
   {% for query in saved_queries %}
-    <article class="query-card">
+    <a class="query-card" href="?saved_query={{ query.id }}">
       <div class="query-card__header">
         <h3 class="query-card__title">{{ query.name }}</h3>
         <div class="query-card__flags">
@@ -25,7 +25,7 @@
           <dd>{{ query.sort_by|default:"updated_at" }} {{ query.sort_order|default:"desc" }}</dd>
         </div>
       </dl>
-    </article>
+    </a>
   {% empty %}
     <p class="empty-state">No saved queries yet.</p>
   {% endfor %}

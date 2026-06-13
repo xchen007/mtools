@@ -18,22 +18,35 @@ The root route `/` redirects to `/workspace/`.
 
 ## Local Setup
 
-Run migrations:
+Use the project virtualenv:
 
 ```bash
-.venv/bin/python manage.py migrate
+source .venv/bin/activate
 ```
 
-Start the dev server:
+Run a Django configuration check:
 
 ```bash
-.venv/bin/python manage.py runserver 127.0.0.1:8011
+python manage.py check
 ```
 
-If port `8011` is busy, choose another local port:
+Apply migrations:
 
 ```bash
-.venv/bin/python manage.py runserver 127.0.0.1:8020
+python manage.py migrate
+```
+
+Start the dev server on the default local port:
+
+```bash
+python manage.py runserver 127.0.0.1:8011
+```
+
+If port `8011` is already in use, check the listener and switch to another port:
+
+```bash
+lsof -nP -iTCP:8011 -sTCP:LISTEN
+python manage.py runserver 127.0.0.1:8020
 ```
 
 ## Verification Routes
@@ -47,6 +60,13 @@ Open these pages after the server starts:
 - `http://127.0.0.1:8011/jira/sync/`
 - `http://127.0.0.1:8011/sync2pod/`
 - `http://127.0.0.1:8011/integrations/`
+
+Verified on the current repo snapshot:
+
+- `python manage.py check` returns `System check identified no issues (0 silenced).`
+- `python manage.py runserver 127.0.0.1:8020` starts successfully
+- `GET /` returns `302` to `/workspace/`
+- `GET /workspace/` returns `200`
 
 ## Environment
 
@@ -66,11 +86,22 @@ Known external limitation:
 
 ## Tests
 
+Run the focused boot regression checks:
+
+```bash
+python manage.py test apps.jira_workspace.tests.test_app_boot -v 2
+```
+
 Run the full workspace test suite:
 
 ```bash
-.venv/bin/python manage.py test apps.jira_workspace.tests -v 2
+python manage.py test apps.jira_workspace.tests -v 2
 ```
+
+Verified on the current repo snapshot:
+
+- `python manage.py test apps.jira_workspace.tests.test_app_boot -v 2` passes with `3` tests
+- `python manage.py test apps.jira_workspace.tests -v 2` passes with `66` tests
 
 ## Project Structure
 

@@ -129,6 +129,68 @@ class Sync2PodService:
             "error_messages": error_messages,
         }
 
+    def build_page_context(self):
+        summary = self.build_status_summary()
+        profiles = list(summary["profiles"])
+        active_profile = profiles[0] if profiles else None
+        latest_run = summary["runs"][0] if summary["runs"] else None
+        latest_output = ""
+        if latest_run:
+            latest_output = latest_run.stdout_log or latest_run.stderr_log or latest_run.command_line
+
+        strategy_items = [
+            {
+                "label": "Config Source",
+                "value": active_profile.config_path if active_profile and active_profile.config_path else "inline",
+            },
+            {
+                "label": "Sync Mode",
+                "value": "manual + watch" if summary["queue_count"] else "manual only",
+            },
+            {
+                "label": "Current State",
+                "value": latest_run.status if latest_run else "idle",
+            },
+        ]
+        archive_items = [
+            {
+                "label": "Last Command",
+                "value": latest_run.command_line if latest_run and latest_run.command_line else "No execution yet.",
+            },
+            {
+                "label": "Last Exit Code",
+                "value": str(latest_run.exit_code) if latest_run and latest_run.exit_code is not None else "-",
+            },
+            {
+                "label": "Latest Throughput",
+                "value": latest_output or "No completed runs yet.",
+            },
+        ]
+        safety_items = [
+            {
+                "label": "Capability Check",
+                "value": "ready" if summary["capability"]["is_available"] else "blocked",
+            },
+            {
+                "label": "Profile Config",
+                "value": "ready" if active_profile and active_profile.watch_path and active_profile.pod_name else "missing",
+            },
+            {
+                "label": "Watch Queue",
+                "value": "active" if summary["queue_count"] else "idle",
+            },
+        ]
+
+        return {
+            **summary,
+            "active_profile": active_profile,
+            "latest_run": latest_run,
+            "latest_output": latest_output,
+            "strategy_items": strategy_items,
+            "archive_items": archive_items,
+            "safety_items": safety_items,
+        }
+
     def _build_command(self, profile):
         command = [profile.command, "push", "--pod", profile.pod_name]
         if profile.namespace:

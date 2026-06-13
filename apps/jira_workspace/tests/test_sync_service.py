@@ -65,6 +65,34 @@ class JiraWorkspaceSyncServiceTests(TestCase):
         assert profile.params_json["username"] == "xchen17"
         assert JiraIssueSyncMembership.objects.filter(profile=profile, issue=issue).exists()
 
+    def test_incremental_sync_uses_stored_username_when_identity_refresh_is_blocked(self):
+        profile = JiraSyncProfile.objects.create(
+            name="My Issues",
+            profile_type=JiraSyncProfile.ProfileType.MY_ISSUES,
+            params_json={"username": "xchen17"},
+            jql="assignee = currentUser() ORDER BY updated DESC",
+        )
+        self.adapter.fetch_current_user.side_effect = Exception(
+            "403 Client Error: Forbidden for url: https://jira.example.com/rest/api/2/myself"
+        )
+        self.adapter.fetch_issues.return_value = [
+            build_issue_payload(
+                key="OPS-778",
+                updated_at="2026-06-12T10:30:00+00:00",
+                summary="Escalate blocker handling",
+                status="Blocked",
+            )
+        ]
+
+        result = self.service.incremental_sync(profile)
+
+        issue = JiraIssue.objects.get(issue_key="OPS-778")
+        profile.refresh_from_db()
+        assert result.fetched_count == 1
+        assert result.inserted_count == 1
+        assert profile.params_json["username"] == "xchen17"
+        assert issue.assignee == "xchen17"
+
     def test_incremental_sync_updates_existing_issue_when_updated_at_changes(self):
         JiraIssue.objects.create(
             issue_key="TESS-321",
@@ -381,3 +409,23 @@ class JiraWorkspaceSyncServiceTests(TestCase):
         assert status["has_external_blocker"] is True
         assert status["blocker_message"] == "External Jira access is currently blocked."
         assert status["latest_failure"].error_message == "Jira returned 403: The request is blocked."
+
+    def test_sync_status_reports_external_blocker_for_generic_403_forbidden_error(self):
+        profile = JiraSyncProfile.objects.create(
+            name="My Issues",
+            profile_type=JiraSyncProfile.ProfileType.MY_ISSUES,
+            params_json={"username": "xchen17"},
+            jql="assignee = currentUser() ORDER BY updated DESC",
+        )
+        JiraSyncRun.objects.create(
+            profile=profile,
+            run_type=JiraSyncRun.RunType.INCREMENTAL,
+            status=JiraSyncRun.Status.FAILED,
+            started_at=datetime.now(timezone.utc),
+            error_message="403 Client Error: Forbidden for url: https://jira.example.com/rest/api/2/myself",
+        )
+
+        status = self.service.build_sync_status()
+
+        assert status["has_external_blocker"] is True
+        assert status["blocker_message"] == "External Jira access is currently blocked."

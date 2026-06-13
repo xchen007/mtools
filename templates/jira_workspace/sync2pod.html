@@ -7,7 +7,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">sync2pod</h1>
-      <p class="page-subtitle">Stored profiles, command capability, recent transfers, and queued watch events.</p>
+      <p class="page-subtitle">Stored profiles, command capability, execution history, and watch state.</p>
     </div>
   </div>
 
@@ -36,43 +36,91 @@
     {% endfor %}
   </div>
 
-  <div class="dashboard-grid">
+  <div class="dashboard-grid dashboard-grid--main-first">
     <section class="panel">
       <div class="panel__header">
-        <h2 class="section-title">Sync2pod Profiles</h2>
+        <h2 class="section-title">Project Configuration Manager</h2>
         <span class="status-pill status-pill--neutral">{{ sync2pod_profiles|length }} profiles</span>
       </div>
-      <div class="profile-list">
-        {% for profile in sync2pod_profiles %}
-          <article class="profile-card">
-            <div class="profile-card__header">
-              <h3 class="profile-card__title">{{ profile.name }}</h3>
-              <span class="status-pill {% if profile.is_enabled %}status-pill--success{% else %}status-pill--neutral{% endif %}">
-                {% if profile.is_enabled %}Enabled{% else %}Disabled{% endif %}
-              </span>
-            </div>
-            <dl class="meta-grid">
-              <div>
-                <dt>Pod</dt>
-                <dd>{{ profile.pod_name }}</dd>
+      <p class="page-subtitle">Sync2pod Profiles and editable configuration presets.</p>
+      <div class="dashboard-grid config-manager-grid">
+        <div class="profile-list">
+          {% for profile in sync2pod_profiles %}
+            <article class="profile-card">
+              <div class="profile-card__header">
+                <h3 class="profile-card__title">{{ profile.name }}</h3>
+                <span class="status-pill {% if profile.is_enabled %}status-pill--success{% else %}status-pill--neutral{% endif %}">
+                  {% if profile.is_enabled %}Enabled{% else %}Disabled{% endif %}
+                </span>
               </div>
-              <div>
-                <dt>Namespace</dt>
-                <dd>{{ profile.namespace }}</dd>
-              </div>
-              <div>
-                <dt>Watch Path</dt>
-                <dd class="meta-grid__code">{{ profile.watch_path }}</dd>
-              </div>
-              <div>
-                <dt>Command</dt>
-                <dd class="meta-grid__code">{{ profile.command }}</dd>
-              </div>
-            </dl>
-          </article>
-        {% empty %}
-          <p class="empty-state">No sync2pod profiles configured yet.</p>
-        {% endfor %}
+              <dl class="meta-grid">
+                <div>
+                  <dt>Pod</dt>
+                  <dd>{{ profile.pod_name }}</dd>
+                </div>
+                <div>
+                  <dt>Namespace</dt>
+                  <dd>{{ profile.namespace }}</dd>
+                </div>
+                <div>
+                  <dt>Watch Path</dt>
+                  <dd class="meta-grid__code">{{ profile.watch_path }}</dd>
+                </div>
+                <div>
+                  <dt>Command</dt>
+                  <dd class="meta-grid__code">{{ profile.command }}</dd>
+                </div>
+              </dl>
+            </article>
+          {% empty %}
+            <p class="empty-state">No sync2pod profiles configured yet.</p>
+          {% endfor %}
+        </div>
+
+        <form method="post" class="config-form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="save_profile">
+          <div class="panel__header">
+            <h3 class="section-title">Configuration Form</h3>
+          </div>
+          <div class="form-grid">
+            <label>
+              <span>Name</span>
+              <input type="text" name="name" value="{{ sync2pod_active_profile.name|default:'' }}" required>
+            </label>
+            <label>
+              <span>Pod Name</span>
+              <input type="text" name="pod_name" value="{{ sync2pod_active_profile.pod_name|default:'' }}" required>
+            </label>
+            <label>
+              <span>Namespace</span>
+              <input type="text" name="namespace" value="{{ sync2pod_active_profile.namespace|default:'default' }}">
+            </label>
+            <label>
+              <span>Watch Path</span>
+              <input type="text" name="watch_path" value="{{ sync2pod_active_profile.watch_path|default:'' }}" required>
+            </label>
+            <label>
+              <span>Config Path</span>
+              <input type="text" name="config_path" value="{{ sync2pod_active_profile.config_path|default:'' }}">
+            </label>
+            <label>
+              <span>Command</span>
+              <input type="text" name="command" value="{{ sync2pod_active_profile.command|default:'sync2pod' }}" required>
+            </label>
+            <label>
+              <span>Extra Args</span>
+              <input type="text" name="extra_args" value="{{ sync2pod_active_profile.extra_args|default:'' }}">
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" name="is_enabled" {% if sync2pod_active_profile.is_enabled or not sync2pod_active_profile %}checked{% endif %}>
+              <span>Enabled</span>
+            </label>
+          </div>
+          <div class="toolbar toolbar--actions">
+            <button type="submit">Save</button>
+          </div>
+        </form>
       </div>
     </section>
 
@@ -103,30 +151,52 @@
     </aside>
   </div>
 
+  <section class="panel">
+    <div class="panel__header">
+      <h2 class="section-title">Sync Strategy Panel</h2>
+    </div>
+    <div class="workspace-card-grid workspace-card-grid--compact">
+      {% for item in sync2pod_strategy_items %}
+        <article class="workspace-card workspace-card--static">
+          <strong>{{ item.value }}</strong>
+          <span>{{ item.label }}</span>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel__header">
+      <h2 class="section-title">Execution Console</h2>
+    </div>
+    <form method="post" class="toolbar toolbar--actions">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="start_sync">
+      <select name="profile_id">
+        {% for profile in sync2pod_profiles %}
+          <option value="{{ profile.id }}">{{ profile.name }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" {% if not sync2pod_profiles %}disabled{% endif %}>Start Sync</button>
+    </form>
+    <div class="recent-list">
+      <article class="recent-item">
+        <div class="recent-item__top">
+          <span class="issue-key">Latest Run</span>
+          <span class="issue-status">{{ sync2pod_latest_run.status|default:"idle" }}</span>
+        </div>
+        <div class="recent-item__summary">{{ sync2pod_latest_run.command_line|default:"No execution started yet." }}</div>
+      </article>
+      <article class="recent-item">
+        <div class="recent-item__summary">{{ sync2pod_metrics.2.value }}</div>
+      </article>
+    </div>
+  </section>
+
   <div class="dashboard-grid">
     <section class="panel">
       <div class="panel__header">
-        <h2 class="section-title">Recent Runs</h2>
-        <span class="status-pill status-pill--neutral">{{ sync2pod_runs|length }} entries</span>
-      </div>
-      <div class="recent-list">
-        {% for run in sync2pod_runs %}
-          <article class="recent-item">
-            <div class="recent-item__top">
-              <span class="issue-key">{{ run.profile.name }}</span>
-              <span class="issue-status">{{ run.status }}</span>
-            </div>
-            <div class="recent-item__summary">{{ run.stdout_log|default:run.error_message|default:run.command_line|default:"No output recorded." }}</div>
-          </article>
-        {% empty %}
-          <p class="empty-state">No sync runs recorded yet.</p>
-        {% endfor %}
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel__header">
-        <h2 class="section-title">Queued Watch Events</h2>
+        <h2 class="section-title">Watch Mode</h2>
         <span class="status-pill status-pill--neutral">{{ sync2pod_queued_events|length }} queued</span>
       </div>
       <div class="recent-list">
@@ -143,6 +213,57 @@
         {% endfor %}
       </div>
     </section>
+
+    <section class="panel">
+      <div class="panel__header">
+        <h2 class="section-title">Archive / Chunk Upload Insights</h2>
+      </div>
+      <div class="recent-list">
+        {% for item in sync2pod_archive_items %}
+          <article class="recent-item">
+            <div class="recent-item__top">
+              <span class="issue-key">{{ item.label }}</span>
+              <span class="issue-status">&nbsp;</span>
+            </div>
+            <div class="recent-item__summary">{{ item.value }}</div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
   </div>
+
+  <section class="panel">
+    <div class="panel__header">
+      <h2 class="section-title">Safety / Validation Strip</h2>
+    </div>
+    <div class="workspace-card-grid workspace-card-grid--compact">
+      {% for item in sync2pod_safety_items %}
+        <article class="workspace-card workspace-card--static">
+          <strong>{{ item.value }}</strong>
+          <span>{{ item.label }}</span>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel__header">
+      <h2 class="section-title">Recent Runs</h2>
+      <span class="status-pill status-pill--neutral">{{ sync2pod_runs|length }} entries</span>
+    </div>
+    <div class="recent-list">
+      {% for run in sync2pod_runs %}
+        <article class="recent-item">
+          <div class="recent-item__top">
+            <span class="issue-key">{{ run.profile.name }}</span>
+            <span class="issue-status">{{ run.status }}</span>
+          </div>
+          <div class="recent-item__summary">{{ run.stdout_log|default:run.error_message|default:run.command_line|default:"No output recorded." }}</div>
+        </article>
+      {% empty %}
+        <p class="empty-state">No sync runs recorded yet.</p>
+      {% endfor %}
+    </div>
+  </section>
 </section>
 {% endblock %}

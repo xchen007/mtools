@@ -239,6 +239,8 @@ a {
 
 .panel__header,
 .panel-toolbar,
+.toolbar,
+.toolbar--actions,
 .query-card__header,
 .profile-card__header,
 .recent-item__top {
@@ -246,6 +248,27 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.toolbar__search {
+  min-width: 0;
+}
+
+.form-grid,
+.group-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.checkbox-row,
+.meta-inline {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.data-table {
+  width: 100%;
 }
 
 .chip-row {
@@ -261,6 +284,7 @@ a {
   border-radius: 999px;
   padding: 8px 12px;
   font: inherit;
+  text-decoration: none;
 }
 
 .chip.is-active {
@@ -275,6 +299,14 @@ a {
   gap: 16px;
 }
 
+.dashboard-grid--main-first {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+}
+
+.config-manager-grid {
+  grid-template-columns: minmax(220px, 0.9fr) minmax(280px, 1.1fr);
+}
+
 .dashboard-sidebar,
 .profile-list,
 .query-library,
@@ -282,6 +314,11 @@ a {
 .recent-list {
   display: grid;
   gap: 12px;
+}
+
+.group-stack {
+  display: grid;
+  gap: 16px;
 }
 
 .project-group {
@@ -324,6 +361,12 @@ a {
   padding: 12px;
 }
 
+.query-card,
+.profile-card {
+  color: inherit;
+  text-decoration: none;
+}
+
 .recent-item__summary,
 .query-card__description,
 .meta-grid dd,
@@ -355,15 +398,128 @@ a {
   word-break: break-word;
 }
 
+.meta-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.config-form {
+  display: grid;
+  gap: 14px;
+  padding: 12px 0 0;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.form-grid label {
+  display: grid;
+  gap: 6px;
+}
+
+.form-grid label span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.form-grid input[type="text"],
+.form-grid input[type="search"],
+.form-grid input[type="url"],
+.form-grid input[type="number"],
+.form-grid select,
+.toolbar input[type="text"],
+.toolbar input[type="search"],
+.toolbar select,
+.toolbar__search {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(8, 16, 34, 0.88);
+  color: var(--text);
+  padding: 0 12px;
+  font: inherit;
+}
+
+.form-grid input::placeholder,
+.toolbar input::placeholder,
+.toolbar__search::placeholder {
+  color: var(--text-muted);
+}
+
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding-top: 22px;
+  color: var(--text);
+}
+
+.checkbox-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #4f2fd9;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.toolbar--actions {
+  margin-top: 12px;
+}
+
+.toolbar__search {
+  flex: 1 1 320px;
+}
+
+.toolbar select {
+  min-width: 220px;
+  flex: 0 1 280px;
+}
+
+.toolbar button,
+.toolbar--actions button {
+  min-height: 38px;
+  border: none;
+  border-radius: 10px;
+  padding: 0 14px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  background: linear-gradient(120deg, #2264ef, #4f2fd9);
+}
+
+.toolbar button[disabled],
+.toolbar--actions button[disabled] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .table-wrap {
   overflow-x: auto;
 }
 
+.data-table,
 .ticket-table {
   width: 100%;
   border-collapse: collapse;
 }
 
+.data-table th,
+.data-table td,
 .ticket-table th,
 .ticket-table td {
   text-align: left;
@@ -372,6 +528,7 @@ a {
   vertical-align: top;
 }
 
+.data-table thead th,
 .ticket-table thead th {
   font-size: 12px;
   text-transform: uppercase;
@@ -379,6 +536,7 @@ a {
   background: var(--surface-muted);
 }
 
+.data-table tbody tr:hover,
 .ticket-table tbody tr:hover {
   background: rgba(18, 33, 64, 0.58);
 }
@@ -476,13 +634,27 @@ a {
   cursor: default;
 }
 
+@media (max-width: 1280px) {
+  .app-shell {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .app-rail {
+    position: static;
+    height: auto;
+  }
+
+  .app-rail {
+    grid-column: 1 / -1;
+  }
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
   }
 
-  .app-nav,
-  .app-rail {
+  .app-nav {
     position: static;
     height: auto;
   }
@@ -500,8 +672,28 @@ a {
     grid-template-columns: 1fr;
   }
 
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar {
+    align-items: stretch;
+  }
+
   .workspace-card-grid,
   .workspace-card-grid--compact {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1400px) {
+  .dashboard-grid--main-first {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1280px) {
+  .config-manager-grid {
     grid-template-columns: 1fr;
   }
 }

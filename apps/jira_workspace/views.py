@@ -1,6 +1,7 @@
 from datetime import timedelta
 
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 
 from jira_workspace.forms import (
@@ -9,7 +10,7 @@ from jira_workspace.forms import (
     JiraSyncProfileForm,
     Sync2PodProfileForm,
 )
-from jira_workspace.models import JiraSavedQuery, JiraSyncProfile, JiraSyncRun
+from jira_workspace.models import JiraIssue, JiraSavedQuery, JiraSyncProfile, JiraSyncRun, Sync2PodProfile, Sync2PodRun
 from jira_workspace.services.integrations_service import IntegrationsService
 from jira_workspace.services.query_service import (
     build_issue_filter_options,
@@ -81,6 +82,7 @@ def dashboard(request):
         start=start,
         end=end,
     )
+    sync_status = SyncService().build_sync_status()
     context = {
         "range_key": range_key,
         "range_options": RANGE_OPTIONS,
@@ -101,6 +103,10 @@ def dashboard(request):
             start=start,
             end=end,
         ),
+        "jira_blocker_message": sync_status["blocker_message"],
+        "jira_latest_failure": sync_status["latest_failure"],
+        "has_external_blocker": sync_status["has_external_blocker"],
+        "jira_has_cached_data": ticket_queryset.exists(),
     }
     context.update(
         _base_shell_context(
@@ -135,49 +141,11 @@ def dashboard_ticket_table(request):
 
 
 def queries(request):
-    saved_queries = JiraSavedQuery.objects.select_related("profile").order_by(
-        "-is_pinned", "-is_starred", "name"
-    )
-    selected_query = saved_queries.first()
-    selected_filters = (selected_query.filters_json if selected_query else {}) or {}
-    context = {
-        "saved_queries": saved_queries,
-        "selected_query": selected_query,
-        "selected_query_filters": [
-            {"label": "Project Filter", "value": ", ".join(selected_filters.get("project", [])) or "Any"},
-            {"label": "Status Filter", "value": ", ".join(selected_filters.get("status", [])) or "Any"},
-        ],
-        "query_form": JiraSavedQueryForm(),
-    }
-    context.update(
-        _base_shell_context(
-            title="Jira Query",
-            breadcrumb="Workspace / Jira / Query",
-            quick_action="Run Query",
-        )
-    )
-    return render(request, "jira_workspace/queries.html", context)
+    return redirect("jira_workspace:query")
 
 
 def profiles(request):
-    profiles_qs = JiraSyncProfile.objects.order_by("-is_default", "name")
-    sync_status = SyncService().build_sync_status()
-    context = {
-        "profiles": profiles_qs,
-        "sync_runs": sync_status["recent_runs"],
-        "latest_failed_run": sync_status["latest_failure"],
-        "jira_blocker_message": sync_status["blocker_message"],
-        "has_external_blocker": sync_status["has_external_blocker"],
-        "profile_form": JiraSyncProfileForm(),
-    }
-    context.update(
-        _base_shell_context(
-            title="Jira Sync",
-            breadcrumb="Workspace / Jira / Sync",
-            quick_action="Start Sync",
-        )
-    )
-    return render(request, "jira_workspace/profiles.html", context)
+    return redirect("jira_workspace:sync")
 
 
 def workspace_home(request):
@@ -230,6 +198,12 @@ def issues(request):
     ticket_rows = build_issue_queryset(
         **normalized_filters,
     )[:20]
+    selected_issue = None
+    selected_issue_key = (request.GET.get("issue") or "").strip()
+    if selected_issue_key:
+        selected_issue = JiraIssue.objects.filter(issue_key=selected_issue_key).first()
+    if selected_issue is None:
+        selected_issue = ticket_rows[0] if ticket_rows else None
     context = {
         "ticket_rows": ticket_rows,
         "saved_queries": JiraSavedQuery.objects.select_related("profile").order_by(
@@ -253,6 +227,7 @@ def issues(request):
             "status": normalized_filters["status"],
             "source": normalized_filters["source"],
         },
+        "selected_issue": selected_issue,
     }
     context.update(
         _base_shell_context(
@@ -265,15 +240,48 @@ def issues(request):
 
 
 def sync(request):
+    sync_service = SyncService()
+    selected_profile = _resolve_selected_profile(request.GET.get("profile"))
+    profile_form = JiraSyncProfileForm(instance=selected_profile) if selected_profile else JiraSyncProfileForm()
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "save_profile":
+            profile_instance = _resolve_selected_profile(request.POST.get("profile_id"))
+            profile_form = JiraSyncProfileForm(request.POST, instance=profile_instance)
+            if profile_form.is_valid():
+                profile = profile_form.save(commit=False)
+                if profile.is_default:
+                    JiraSyncProfile.objects.filter(is_default=True).exclude(pk=profile.pk).update(is_default=False)
+                profile.save()
+                return redirect(f"{reverse('jira_workspace:sync')}?profile={profile.id}")
+        elif action == "run_sync":
+            profile = get_object_or_404(JiraSyncProfile, pk=request.POST.get("profile_id"))
+            run_type = request.POST.get("run_type")
+            try:
+                if run_type == JiraSyncRun.RunType.FULL:
+                    sync_service.full_sync(profile)
+                else:
+                    sync_service.incremental_sync(profile)
+            except Exception:
+                pass
+            return redirect(f"{reverse('jira_workspace:sync')}?profile={profile.id}")
+
     profiles_qs = JiraSyncProfile.objects.order_by("-is_default", "name")
-    sync_status = SyncService().build_sync_status()
+    if selected_profile is None:
+        selected_profile = profiles_qs.first()
+        if not profile_form.is_bound:
+            profile_form = JiraSyncProfileForm(instance=selected_profile) if selected_profile else JiraSyncProfileForm()
+
+    sync_status = sync_service.build_sync_status()
     context = {
         "profiles": profiles_qs,
         "sync_runs": sync_status["recent_runs"],
         "latest_failed_run": sync_status["latest_failure"],
         "jira_blocker_message": sync_status["blocker_message"],
         "has_external_blocker": sync_status["has_external_blocker"],
-        "profile_form": JiraSyncProfileForm(),
+        "profile_form": profile_form,
+        "selected_profile": selected_profile,
     }
     context.update(
         _base_shell_context(
@@ -286,14 +294,66 @@ def sync(request):
 
 
 def query(request):
-    return queries(request)
+    saved_queries = JiraSavedQuery.objects.select_related("profile").order_by(
+        "-is_pinned", "-is_starred", "name"
+    )
+    selected_query = _resolve_selected_query(request.GET.get("saved_query"), saved_queries)
+    query_form = JiraSavedQueryForm(instance=selected_query) if selected_query else JiraSavedQueryForm()
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "save_query":
+            query_instance = _resolve_selected_query(
+                request.POST.get("saved_query_id"),
+                saved_queries,
+            )
+            query_form = JiraSavedQueryForm(request.POST, instance=query_instance)
+            if query_form.is_valid():
+                saved_query = query_form.save()
+                return redirect(f"{reverse('jira_workspace:query')}?saved_query={saved_query.id}")
+            selected_query = query_instance or selected_query
+
+    selected_filters = (selected_query.filters_json if selected_query else {}) or {}
+    query_rows = _build_saved_query_results(selected_query)
+    context = {
+        "saved_queries": saved_queries,
+        "selected_query": selected_query,
+        "selected_query_filters": [
+            {"label": "Project Filter", "value": ", ".join(selected_filters.get("project", [])) or "Any"},
+            {"label": "Status Filter", "value": ", ".join(selected_filters.get("status", [])) or "Any"},
+        ],
+        "query_form": query_form,
+        "query_rows": query_rows,
+    }
+    context.update(
+        _base_shell_context(
+            title="Jira Query",
+            breadcrumb="Workspace / Jira / Query",
+            quick_action="Run Query",
+        )
+    )
+    return render(request, "jira_workspace/queries.html", context)
 
 
 def sync2pod(request):
-    sync2pod_status = Sync2PodService().build_status_summary()
-    latest_run = sync2pod_status["runs"][0] if sync2pod_status["runs"] else None
+    sync2pod_service = Sync2PodService()
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "save_profile":
+            sync2pod_service.upsert_profile(request.POST)
+            return redirect("jira_workspace:sync2pod")
+        if action == "start_sync":
+            profile = get_object_or_404(Sync2PodProfile, pk=request.POST.get("profile_id"))
+            sync2pod_service.create_run(
+                profile=profile,
+                trigger=Sync2PodRun.Trigger.MANUAL,
+            )
+            return redirect("jira_workspace:sync2pod")
+
+    sync2pod_status = sync2pod_service.build_page_context()
+    latest_run = sync2pod_status["latest_run"]
     latest_state = latest_run.status if latest_run else "idle"
-    latest_throughput = latest_run.stdout_log if latest_run and latest_run.stdout_log else "No completed runs yet."
+    latest_throughput = sync2pod_status["latest_output"] or "No completed runs yet."
     context = {
         "sync2pod_profiles": sync2pod_status["profiles"],
         "sync2pod_runs": sync2pod_status["runs"],
@@ -301,7 +361,12 @@ def sync2pod(request):
         "sync2pod_latest_failure": sync2pod_status["latest_failure"],
         "sync2pod_capability": sync2pod_status["capability"],
         "sync2pod_error_messages": sync2pod_status["error_messages"],
-        "sync2pod_profile_form": Sync2PodProfileForm(),
+        "sync2pod_profile_form": Sync2PodProfileForm(instance=sync2pod_status["active_profile"]),
+        "sync2pod_active_profile": sync2pod_status["active_profile"],
+        "sync2pod_latest_run": latest_run,
+        "sync2pod_strategy_items": sync2pod_status["strategy_items"],
+        "sync2pod_archive_items": sync2pod_status["archive_items"],
+        "sync2pod_safety_items": sync2pod_status["safety_items"],
         "sync2pod_metrics": [
             {"value": sync2pod_status["queue_count"], "label": "Queued Watch Events"},
             {"value": latest_state, "label": "Run State"},
@@ -334,3 +399,39 @@ def integrations(request):
         )
     )
     return render(request, "jira_workspace/integrations.html", context)
+
+
+def _resolve_selected_query(query_id, queryset):
+    if not query_id:
+        return queryset.first()
+    try:
+        return queryset.get(pk=query_id)
+    except (JiraSavedQuery.DoesNotExist, ValueError, TypeError):
+        return queryset.first()
+
+
+def _resolve_selected_profile(profile_id):
+    if not profile_id:
+        return None
+    try:
+        return JiraSyncProfile.objects.get(pk=profile_id)
+    except (JiraSyncProfile.DoesNotExist, ValueError, TypeError):
+        return None
+
+
+def _build_saved_query_results(saved_query):
+    if not saved_query:
+        return []
+
+    username = _resolve_username()
+    filters_json = dict(saved_query.filters_json or {})
+    normalized_filters = normalize_issue_filters(
+        username=username,
+        source="all",
+        project_key=(filters_json.get("project") or [""])[0],
+        status=(filters_json.get("status") or [""])[0],
+        search="",
+        sort_by=saved_query.sort_by,
+        sort_order=saved_query.sort_order,
+    )
+    return list(build_issue_queryset(**normalized_filters)[:20])

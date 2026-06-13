@@ -11,7 +11,7 @@
     </div>
   </div>
 
-  <div class="dashboard-grid">
+  <div class="dashboard-grid dashboard-grid--main-first">
     <section class="panel">
       <div class="panel__header">
         <h2 class="section-title">Run Configuration Presets</h2>
@@ -19,7 +19,7 @@
       </div>
       <div class="profile-list">
         {% for profile in profiles %}
-          <article class="profile-card">
+          <a class="profile-card" href="?profile={{ profile.id }}">
             <div class="profile-card__header">
               <h3 class="profile-card__title">{{ profile.name }}</h3>
               {% if profile.is_default %}
@@ -36,7 +36,7 @@
                 <dd class="meta-grid__code">{{ profile.last_cursor|default:"-" }}</dd>
               </div>
             </dl>
-          </article>
+          </a>
         {% empty %}
           <p class="empty-state">No sync profiles configured yet.</p>
         {% endfor %}
@@ -70,6 +70,81 @@
             <p class="empty-state">No sync runs recorded yet.</p>
           {% endfor %}
         </div>
+      </section>
+    </aside>
+  </div>
+
+  <div class="dashboard-grid dashboard-grid--main-first">
+    <section class="panel">
+      <div class="panel__header">
+        <h2 class="section-title">Profile Editor</h2>
+        <span class="status-pill status-pill--neutral">{{ selected_profile.name|default:"New Profile" }}</span>
+      </div>
+      <form method="post" class="config-form" autocomplete="off">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="save_profile">
+        {% if selected_profile %}
+          <input type="hidden" name="profile_id" value="{{ selected_profile.id }}">
+        {% endif %}
+        <div class="form-grid">
+          <label>
+            <span>Name</span>
+            <input type="text" name="name" value="{{ profile_form.name.value|default:'' }}" required>
+          </label>
+          <label>
+            <span>Profile Type</span>
+            <select name="profile_type" required>
+              {% for value, label in profile_form.fields.profile_type.choices %}
+                <option value="{{ value }}"{% if profile_form.profile_type.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            <span>Username</span>
+            <input type="text" name="username" value="{{ profile_form.username.value|default:'' }}" placeholder="xchen17">
+          </label>
+          <label>
+            <span>Project Key</span>
+            <input type="text" name="project_key" value="{{ profile_form.project_key.value|default:'' }}" placeholder="OPS">
+          </label>
+          <label>
+            <span>Custom JQL</span>
+            <input type="text" name="custom_jql" value="{{ profile_form.custom_jql.value|default:'' }}" placeholder='project = "OPS" AND status = "Blocked"'>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" name="is_default" {% if profile_form.is_default.value %}checked{% endif %}>
+            <span>Default Profile</span>
+          </label>
+        </div>
+        <div class="toolbar toolbar--actions">
+          <button type="submit">Save Profile</button>
+        </div>
+      </form>
+    </section>
+
+    <aside class="dashboard-sidebar">
+      <section class="panel panel--tight">
+        <div class="panel__header">
+          <h2 class="section-title">Sync Controls</h2>
+        </div>
+        <form method="post" class="config-form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="run_sync">
+          <div class="toolbar">
+            <select name="profile_id" required>
+              {% for profile in profiles %}
+                <option value="{{ profile.id }}"{% if selected_profile and selected_profile.id == profile.id %} selected{% endif %}>{{ profile.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="toolbar toolbar--actions">
+            <button type="submit" name="run_type" value="incremental" {% if not profiles %}disabled{% endif %}>Run Incremental</button>
+            <button type="submit" name="run_type" value="full" {% if not profiles %}disabled{% endif %}>Run Full</button>
+          </div>
+        </form>
+        {% if has_external_blocker %}
+          <p class="empty-state">{{ jira_blocker_message }}</p>
+        {% endif %}
       </section>
     </aside>
   </div>

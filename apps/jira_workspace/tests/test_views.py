@@ -1,5 +1,9 @@
 from datetime import datetime, timedelta, timezone
+from html import unescape
+from pathlib import Path
+from unittest.mock import patch
 
+from django.conf import settings
 from django.test import TestCase
 from django.urls import reverse
 
@@ -60,6 +64,7 @@ class JiraWorkspaceDashboardViewTests(TestCase):
         assert "Created Issues" in content
         assert "Tracked Projects" in content
         assert "Blocked Issues" in content
+        assert "?range=30d" in content
 
     def test_dashboard_ticket_table_partial_filters_assigned_project(self):
         response = self.client.get(
@@ -71,6 +76,35 @@ class JiraWorkspaceDashboardViewTests(TestCase):
         content = response.content.decode()
         assert "TESS-321" in content
         assert "OPS-778" not in content
+
+    def test_dashboard_surfaces_external_blocker_when_local_cache_is_empty(self):
+        JiraIssue.objects.all().delete()
+        profile = JiraSyncProfile.objects.create(
+            name="My Issues",
+            profile_type=JiraSyncProfile.ProfileType.MY_ISSUES,
+            params_json={"username": "xchen17"},
+            jql="assignee = currentUser() ORDER BY updated DESC",
+            is_default=True,
+        )
+        JiraSyncRun.objects.create(
+            profile=profile,
+            run_type=JiraSyncRun.RunType.FULL,
+            status=JiraSyncRun.Status.FAILED,
+            started_at=self.now - timedelta(minutes=10),
+            finished_at=self.now - timedelta(minutes=9),
+            fetched_count=0,
+            inserted_count=0,
+            updated_count=0,
+            skipped_count=0,
+            error_message="Jira returned 403: The request is blocked.",
+        )
+
+        response = self.client.get(reverse("jira_workspace:dashboard"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "External Jira access is currently blocked" in content
+        assert "No cached Jira issues are available yet." in content
 
 
 class JiraWorkspaceSecondaryPagesTests(TestCase):
@@ -155,7 +189,7 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         response = self.client.get(reverse("jira_workspace:query"))
 
         assert response.status_code == 200
-        content = response.content.decode()
+        content = unescape(response.content.decode())
         assert "Query Library" in content
         assert "My Open Blockers" in content
         assert "Blocked work owned by me." in content
@@ -164,6 +198,45 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert "Starred" in content
         assert "Project Filter" in content
         assert "Status Filter" in content
+        assert "Query Results" in content
+        assert "OPS-778" in content
+        assert "TESS-321" not in content
+
+    def test_query_page_can_persist_a_saved_query_from_editor_form(self):
+        response = self.client.post(
+            reverse("jira_workspace:query"),
+            {
+                "action": "save_query",
+                "name": "OPS Blockers",
+                "profile": str(self.profile.id),
+                "description": "Track OPS blockers",
+                "project_values": "OPS",
+                "status_values": "Blocked",
+                "jql_text": 'project = "OPS" AND status = "Blocked"',
+                "sort_by": "priority",
+                "sort_order": "asc",
+                "is_starred": "on",
+            },
+        )
+
+        assert response.status_code == 302
+        saved_query = JiraSavedQuery.objects.get(name="OPS Blockers")
+        assert saved_query.profile == self.profile
+        assert saved_query.filters_json == {"project": ["OPS"], "status": ["Blocked"]}
+        assert saved_query.sort_by == "priority"
+        assert saved_query.sort_order == "asc"
+        assert saved_query.is_starred is True
+
+    def test_query_page_allows_selecting_a_saved_query(self):
+        selected = JiraSavedQuery.objects.get(name="Team Review Queue")
+
+        response = self.client.get(reverse("jira_workspace:query"), {"saved_query": selected.id})
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Team Review Queue" in content
+        assert "TESS-321" in content
+        assert "OPS-778" not in content
 
     def test_issues_page_renders_saved_views_filters_and_issue_rows(self):
         response = self.client.get(
@@ -182,6 +255,18 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert "Status" in content
         assert "Search" in content
 
+    def test_issues_page_can_render_selected_issue_detail(self):
+        response = self.client.get(
+            reverse("jira_workspace:issues"),
+            {"issue": "OPS-778"},
+        )
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Issue Detail" in content
+        assert "Escalate blocker handling" in content
+        assert "Sprint 42" in content
+
     def test_sync_page_renders_profiles_runs_and_blocker_state(self):
         response = self.client.get(reverse("jira_workspace:sync"))
 
@@ -193,6 +278,54 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert "success" in content.lower()
         assert "The request is blocked." in content
         assert "External Jira access is currently blocked" in content
+        assert "Profile Editor" in content
+        assert "Sync Controls" in content
+
+    def test_sync_page_can_persist_a_profile(self):
+        response = self.client.post(
+            reverse("jira_workspace:sync"),
+            {
+                "action": "save_profile",
+                "name": "OPS Project",
+                "profile_type": JiraSyncProfile.ProfileType.PROJECT,
+                "project_key": "OPS",
+                "is_default": "on",
+            },
+        )
+
+        assert response.status_code == 302
+        profile = JiraSyncProfile.objects.get(name="OPS Project")
+        assert profile.profile_type == JiraSyncProfile.ProfileType.PROJECT
+        assert profile.params_json == {"project_key": "OPS"}
+        assert profile.is_default is True
+
+    @patch("jira_workspace.views.SyncService.incremental_sync")
+    def test_sync_page_can_trigger_incremental_sync(self, incremental_sync):
+        response = self.client.post(
+            reverse("jira_workspace:sync"),
+            {
+                "action": "run_sync",
+                "profile_id": str(self.profile.id),
+                "run_type": JiraSyncRun.RunType.INCREMENTAL,
+            },
+        )
+
+        assert response.status_code == 302
+        incremental_sync.assert_called_once()
+
+    @patch("jira_workspace.views.SyncService.full_sync")
+    def test_sync_page_can_trigger_full_sync(self, full_sync):
+        response = self.client.post(
+            reverse("jira_workspace:sync"),
+            {
+                "action": "run_sync",
+                "profile_id": str(self.profile.id),
+                "run_type": JiraSyncRun.RunType.FULL,
+            },
+        )
+
+        assert response.status_code == 302
+        full_sync.assert_called_once()
 
 
 class JiraWorkspaceNavigationTests(TestCase):
@@ -217,6 +350,17 @@ class JiraWorkspaceNavigationTests(TestCase):
             content = response.content.decode()
             assert "mtools" in content
             assert title_text in content
+
+    def test_legacy_queries_and_profiles_routes_redirect_to_new_pages(self):
+        route_expectations = [
+            (reverse("jira_workspace:queries"), reverse("jira_workspace:query")),
+            (reverse("jira_workspace:profiles"), reverse("jira_workspace:sync")),
+        ]
+
+        for old_route, new_route in route_expectations:
+            response = self.client.get(old_route)
+            assert response.status_code == 302
+            assert response.headers["Location"] == new_route
 
     def test_root_redirects_to_workspace_home(self):
         response = self.client.get("/")
@@ -328,6 +472,12 @@ class Sync2PodViewTests(TestCase):
         assert "pod-a" in content
         assert "synced 4 files" in content
         assert "src/module.py" in content
+        assert "Project Configuration Manager" in content
+        assert "Sync Strategy Panel" in content
+        assert "Execution Console" in content
+        assert "Watch Mode" in content
+        assert "Archive / Chunk Upload Insights" in content
+        assert "Safety / Validation Strip" in content
 
     def test_sync2pod_page_renders_actionable_failure_state(self):
         profile = Sync2PodProfile.objects.create(
@@ -352,6 +502,51 @@ class Sync2PodViewTests(TestCase):
         content = response.content.decode()
         assert "Action Required" in content
         assert "sync2pod command is not available on this host." in content
+
+    def test_sync2pod_post_can_persist_a_profile(self):
+        response = self.client.post(
+            reverse("jira_workspace:sync2pod"),
+            {
+                "action": "save_profile",
+                "name": "Primary Pod",
+                "pod_name": "pod-a",
+                "namespace": "sync",
+                "watch_path": "/tmp/watch",
+                "config_path": "/tmp/sync2pod.yaml",
+                "command": "true",
+                "extra_args": "--delete",
+                "is_enabled": "on",
+            },
+        )
+
+        assert response.status_code == 302
+        profile = Sync2PodProfile.objects.get(name="Primary Pod")
+        assert profile.command == "true"
+        assert profile.extra_args == "--delete"
+
+    def test_sync2pod_post_can_start_a_sync_run(self):
+        profile = Sync2PodProfile.objects.create(
+            name="Primary Pod",
+            pod_name="pod-a",
+            namespace="sync",
+            watch_path="/tmp/watch",
+            config_path="/tmp/sync2pod.yaml",
+            command="true",
+            extra_args="--delete",
+        )
+
+        response = self.client.post(
+            reverse("jira_workspace:sync2pod"),
+            {
+                "action": "start_sync",
+                "profile_id": str(profile.id),
+            },
+        )
+
+        assert response.status_code == 302
+        run = Sync2PodRun.objects.latest("started_at")
+        assert run.profile == profile
+        assert run.status == Sync2PodRun.Status.SUCCESS
 
 
 class IntegrationsViewTests(TestCase):
@@ -413,3 +608,20 @@ class IntegrationsViewTests(TestCase):
         assert "sync2pod" in content
         assert "Push local files into pods." in content
         assert "Refreshes cached Jira issues." not in content
+
+
+class JiraWorkspaceStylesheetTests(TestCase):
+    def test_shared_stylesheet_includes_toolbar_and_form_layout_hooks(self):
+        css = Path(settings.BASE_DIR / "static/jira_workspace/jira.css").read_text()
+
+        for selector in [
+            ".toolbar",
+            ".toolbar--actions",
+            ".toolbar__search",
+            ".form-grid",
+            ".checkbox-row",
+            ".data-table",
+            ".meta-inline",
+            ".group-stack",
+        ]:
+            assert selector in css

@@ -15,14 +15,37 @@
     <div class="panel-toolbar">
       <div class="chip-row" aria-label="Time range">
         {% with active_range=range_key|default:"15d" %}
-          <button class="chip{% if active_range == '15d' %} is-active{% endif %}" type="button">15d</button>
-          <button class="chip{% if active_range == '7d' %} is-active{% endif %}" type="button">7d</button>
-          <button class="chip{% if active_range == '30d' %} is-active{% endif %}" type="button">30d</button>
-          <button class="chip{% if active_range == '90d' %} is-active{% endif %}" type="button">90d</button>
+          <a class="chip{% if active_range == '15d' %} is-active{% endif %}" href="?range=15d">15d</a>
+          <a class="chip{% if active_range == '7d' %} is-active{% endif %}" href="?range=7d">7d</a>
+          <a class="chip{% if active_range == '30d' %} is-active{% endif %}" href="?range=30d">30d</a>
+          <a class="chip{% if active_range == '90d' %} is-active{% endif %}" href="?range=90d">90d</a>
         {% endwith %}
       </div>
     </div>
   </section>
+
+  {% if has_external_blocker and not jira_has_cached_data %}
+    <section class="panel">
+      <div class="panel__header">
+        <h2 class="section-title">Jira Data Status</h2>
+        <span class="status-pill status-pill--failed">{{ jira_blocker_message }}</span>
+      </div>
+      <div class="recent-list">
+        <article class="recent-item">
+          <div class="recent-item__top">
+            <span class="issue-key">External Jira access is currently blocked</span>
+            <span class="issue-status">No Cache</span>
+          </div>
+          <div class="recent-item__summary">
+            No cached Jira issues are available yet.
+            {% if jira_latest_failure and jira_latest_failure.error_message %}
+              {{ jira_latest_failure.error_message }}
+            {% endif %}
+          </div>
+        </article>
+      </div>
+    </section>
+  {% endif %}
 
   <section class="workspace-card-grid workspace-card-grid--compact">
     {% for metric in dashboard_metrics %}
