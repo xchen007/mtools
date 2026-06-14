@@ -1,5 +1,7 @@
 # mtools Workspace UI Migration Implementation Plan
 
+Current-state note, 2026-06-14: this plan is complete and historical. The routes created here still exist, but Jira's visible workflow has since converged on `/jira/query/` as the Query Card dashboard/workbench. `/jira/dashboard/`, `/jira/issues/`, and `/jira/sync/` are retained as compatibility/diagnostic backend pages, not primary visible navigation entries.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Migrate all `ui-preview/*.html` pages into the Django app, wire them to real backend behavior, and deliver a testable workspace UI for Jira, sync2pod, and integrations.

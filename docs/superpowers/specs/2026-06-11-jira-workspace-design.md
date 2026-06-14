@@ -1,5 +1,7 @@
 # mtools Jira 工作台设计文档
 
+Current-state note, 2026-06-14: this early design is superseded by the completed workspace migration and Query Card workbench work. Use `docs/superpowers/plans/STATUS.md` and `README.md` for current routes, navigation, and verification status.
+
 日期：2026-06-11  
 状态：待实现前确认  
 语言：中文（按当前沟通要求）

@@ -1,6 +1,49 @@
-<header class="workspace-topbar">
-  <input class="workspace-command" type="text" placeholder="Search issues, tools, runs..." aria-label="Workspace search">
-  <button class="workspace-button" type="button">{{ shell_quick_action|default:"Quick Action" }}</button>
-  <span class="workspace-env">{{ shell_env_label|default:"ENV: LOCAL" }}</span>
-  <div class="workspace-profile">{{ shell_user|default:"user" }}</div>
+<header class="workspace-topbar workspace-topbar--compact">
+  <div class="workspace-topbar__primary">
+    <button
+      class="workspace-nav-toggle"
+      type="button"
+      data-nav-toggle
+      aria-label="Collapse sidebar"
+      aria-expanded="true"
+      title="Collapse sidebar"
+    >
+      <span aria-hidden="true">☰</span>
+    </button>
+    <div class="workspace-tool-name">mtools</div>
+  </div>
+  <nav class="tool-switcher" aria-label="Tool Switcher">
+    {% for item in shell_tools %}
+      <a class="tool-switcher__button{% if item.active %} active{% endif %}" href="{{ item.href }}">
+        <span>{{ item.label }}</span>
+      </a>
+    {% endfor %}
+  </nav>
+  <div class="workspace-topbar__spacer" aria-hidden="true"></div>
+  <div class="workspace-topbar__actions">
+    <button class="workspace-button" type="button">{{ shell_quick_action|default:"Quick Action" }}</button>
+    <button class="workspace-theme-button" type="button" data-theme-toggle aria-label="Theme: System" title="Theme: System">
+      <span class="workspace-theme-button__icon" data-theme-icon aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false">
+          <rect x="4" y="5" width="16" height="11" rx="2"></rect>
+          <path d="M9 20h6"></path>
+          <path d="M12 16v4"></path>
+        </svg>
+      </span>
+      <span class="workspace-theme-button__label" data-theme-label>Auto</span>
+    </button>
+    <span class="workspace-env">{{ shell_env_label|default:"ENV: LOCAL" }}</span>
+    <div class="workspace-profile">{{ shell_user|default:"user" }}</div>
+    <button
+      class="workspace-settings-button"
+      type="button"
+      data-settings-open
+      aria-controls="workspace-settings-drawer"
+      aria-expanded="false"
+      title="Settings"
+    >
+      <span aria-hidden="true">⚙</span>
+      <span class="workspace-settings-button__label">Settings</span>
+    </button>
+  </div>
 </header>

@@ -1,5 +1,15 @@
-<div class="table-wrap">
-  <table class="ticket-table">
+<div
+  class="table-wrap table-wrap--ticket-scroll"
+  data-rich-table
+  data-rich-table-type="tickets"
+  data-rich-table-views="tickets"
+  data-rich-table-id="{{ rich_table_id|default:'jira-ticket-table' }}"
+  data-rich-table-persist-scope="{{ rich_table_persist_scope|default:request.path }}"
+  data-rich-table-row-click="{{ rich_table_row_click|default:'drawer' }}"
+  data-rich-table-page-size="{{ rich_table_page_size|default:20 }}"
+  data-rich-table-fill-height="{{ rich_table_fill_height|yesno:'true,false' }}"
+>
+  <table class="ticket-table ticket-table--dense ticket-table--no-wrap">
     <thead>
       <tr>
         <th scope="col">Key</th>
@@ -14,7 +24,22 @@
     </thead>
     <tbody>
       {% for issue in ticket_rows %}
-        <tr>
+        <tr
+          class="ticket-table__row"
+          tabindex="0"
+          role="button"
+          data-ticket-row
+          data-ticket-key="{{ issue.issue_key }}"
+          data-ticket-project="{{ issue.project_key|default:'-' }}"
+          data-ticket-summary="{{ issue.summary|default:'-' }}"
+          data-ticket-status="{{ issue.status|default:'-' }}"
+          data-ticket-assignee="{{ issue.assignee|default:'-' }}"
+          data-ticket-reporter="{{ issue.reporter|default:'-' }}"
+          data-ticket-priority="{{ issue.priority|default:'-' }}"
+          data-ticket-sprint="{{ issue.sprint|default:'-' }}"
+          data-ticket-created="{{ issue.created_at|date:'Y-m-d H:i'|default:'-' }}"
+          data-ticket-updated="{{ issue.updated_at|date:'Y-m-d H:i'|default:'-' }}"
+        >
           <td class="cell-key">{{ issue.issue_key }}</td>
           <td>{{ issue.project_key|default:"-" }}</td>
           <td>{{ issue.summary|default:"-" }}</td>

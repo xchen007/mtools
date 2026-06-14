@@ -1,5 +1,7 @@
 # mtools Workspace UI 全量迁移设计文档
 
+Current-state note, 2026-06-14: this document is historical. The migrated routes still exist, but the visible Jira workflow has since converged on `/jira/query/` as a Query Card dashboard/workbench. `/jira/dashboard/`, `/jira/issues/`, and `/jira/sync/` are retained as compatibility/diagnostic backend pages, not primary visible navigation entries.
+
 日期：2026-06-12
 状态：待实现前确认
 语言：中文

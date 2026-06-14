@@ -1,6 +1,7 @@
 import re
 from dataclasses import dataclass
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -160,6 +161,8 @@ class SyncService:
                     reporter=item.get("reporter"),
                     priority=item.get("priority"),
                     sprint=item.get("sprint"),
+                    issue_type=item.get("issue_type") or "",
+                    labels_json=item.get("labels_json") or [],
                     updated_at=updated_at,
                     created_at=item.get("created_at"),
                     raw_json=item.get("raw_json", "{}"),
@@ -178,6 +181,8 @@ class SyncService:
                 issue.reporter = item.get("reporter")
                 issue.priority = item.get("priority")
                 issue.sprint = item.get("sprint")
+                issue.issue_type = item.get("issue_type") or ""
+                issue.labels_json = item.get("labels_json") or []
                 issue.updated_at = updated_at
                 issue.created_at = item.get("created_at")
                 issue.raw_json = item.get("raw_json", "{}")
@@ -273,5 +278,10 @@ class SyncService:
 
     def _jira_client(self):
         if self.jira is None:
-            self.jira = JiraAdapter()
+            if getattr(settings, "JIRA_SIMULATION_MODE", False):
+                from jira_workspace.services.fake_jira_adapter import FakeJiraAdapter
+
+                self.jira = FakeJiraAdapter()
+            else:
+                self.jira = JiraAdapter()
         return self.jira

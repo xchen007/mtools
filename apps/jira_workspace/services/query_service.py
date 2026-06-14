@@ -1,4 +1,4 @@
-from django.db.models import Q
+from django.db.models import Count, Q
 
 from jira_workspace.models import JiraIssue
 
@@ -7,6 +7,7 @@ VALID_SORT_FIELDS = (
     "assignee",
     "created_at",
     "issue_key",
+    "issue_type",
     "priority",
     "project_key",
     "reporter",
@@ -22,7 +23,15 @@ def normalize_issue_filters(
     username,
     source="all",
     project_key=None,
+    projects=None,
     status=None,
+    statuses=None,
+    reporter=None,
+    assignee=None,
+    labels=None,
+    sprint=None,
+    issue_types=None,
+    priorities=None,
     search=None,
     sort_by="updated_at",
     sort_order="desc",
@@ -35,7 +44,15 @@ def normalize_issue_filters(
         "username": username,
         "source": normalized_source,
         "project_key": (project_key or "").strip(),
+        "projects": _normalize_list(projects),
         "status": (status or "").strip(),
+        "statuses": _normalize_list(statuses),
+        "reporter": None if reporter is None else reporter.strip(),
+        "assignee": None if assignee is None else assignee.strip(),
+        "labels": _normalize_list(labels),
+        "sprint": (sprint or "").strip(),
+        "issue_types": _normalize_list(issue_types),
+        "priorities": _normalize_list(priorities),
         "search": (search or "").strip(),
         "sort_by": normalized_sort_by,
         "sort_order": normalized_sort_order,
@@ -47,7 +64,17 @@ def build_issue_queryset(
     username,
     source="all",
     project_key=None,
+    projects=None,
     status=None,
+    statuses=None,
+    reporter=None,
+    assignee=None,
+    labels=None,
+    sprint=None,
+    issue_type=None,
+    issue_types=None,
+    priority=None,
+    priorities=None,
     start=None,
     end=None,
     search=None,
@@ -74,17 +101,59 @@ def build_issue_queryset(
 
     queryset = JiraIssue.objects.all()
 
-    if source == "assigned":
+    explicit_people = reporter is not None or assignee is not None
+    reporter = (reporter or "").strip() if reporter is not None else ""
+    assignee = (assignee or "").strip() if assignee is not None else ""
+
+    if explicit_people:
+        people_query = Q()
+        if assignee:
+            people_query |= Q(assignee=assignee)
+        if reporter:
+            people_query |= Q(reporter=reporter)
+        if people_query:
+            queryset = queryset.filter(people_query)
+    elif source == "assigned":
         queryset = queryset.filter(assignee=username)
     elif source == "created":
         queryset = queryset.filter(reporter=username)
     else:
         queryset = queryset.filter(Q(assignee=username) | Q(reporter=username))
 
+    project_values = _normalize_list(projects)
     if project_key:
-        queryset = queryset.filter(project_key=project_key)
+        project_values.append(project_key)
+    if project_key:
+        queryset = queryset.filter(project_key__in=project_values)
+    elif project_values:
+        queryset = queryset.filter(project_key__in=project_values)
+    status_values = _normalize_list(statuses)
     if status:
-        queryset = queryset.filter(status__iexact=status)
+        status_values.append(status)
+    if status:
+        queryset = queryset.filter(status__in=status_values)
+    elif status_values:
+        queryset = queryset.filter(status__in=status_values)
+    label_values = _normalize_list(labels)
+    if label_values:
+        matching_keys = [
+            issue.issue_key
+            for issue in queryset.only("issue_key", "labels_json")
+            if set(label_values).issubset(set(issue.labels_json or []))
+        ]
+        queryset = queryset.filter(issue_key__in=matching_keys)
+    if sprint:
+        queryset = queryset.filter(sprint__icontains=sprint)
+    issue_type_values = _normalize_list(issue_types)
+    if issue_type:
+        issue_type_values.append(issue_type)
+    if issue_type_values:
+        queryset = queryset.filter(issue_type__in=issue_type_values)
+    priority_values = _normalize_list(priorities)
+    if priority:
+        priority_values.append(priority)
+    if priority_values:
+        queryset = queryset.filter(priority__in=priority_values)
     if start:
         queryset = queryset.filter(updated_at__gte=start)
     if end:
@@ -99,11 +168,12 @@ def build_issue_queryset(
 
 
 def build_issue_filter_options(*, username):
-    base_queryset = build_issue_queryset(username=username)
+    base_queryset = JiraIssue.objects.filter(Q(assignee=username) | Q(reporter=username))
     project_options = list(
-        base_queryset.order_by("project_key")
+        base_queryset.values("project_key")
+        .annotate(issue_count=Count("issue_key"))
+        .order_by("-issue_count", "project_key")
         .values_list("project_key", flat=True)
-        .distinct()
     )
     status_options = list(
         base_queryset.order_by("status").values_list("status", flat=True).distinct()
@@ -115,6 +185,13 @@ def build_issue_filter_options(*, username):
         .values_list("assignee", flat=True)
         .distinct()
     )
+    reporter_options = list(
+        JiraIssue.objects.exclude(reporter__isnull=True)
+        .exclude(reporter="")
+        .order_by("reporter")
+        .values_list("reporter", flat=True)
+        .distinct()
+    )
     priority_options = list(
         JiraIssue.objects.exclude(priority__isnull=True)
         .exclude(priority="")
@@ -122,12 +199,45 @@ def build_issue_filter_options(*, username):
         .values_list("priority", flat=True)
         .distinct()
     )
+    sprint_options = list(
+        JiraIssue.objects.exclude(sprint__isnull=True)
+        .exclude(sprint="")
+        .order_by("sprint")
+        .values_list("sprint", flat=True)
+        .distinct()
+    )
+    issue_type_options = list(
+        JiraIssue.objects.exclude(issue_type="")
+        .order_by("issue_type")
+        .values_list("issue_type", flat=True)
+        .distinct()
+    )
+    label_options = sorted(
+        {
+            label
+            for labels in JiraIssue.objects.values_list("labels_json", flat=True)
+            for label in (labels or [])
+            if label
+        }
+    )
     return {
         "source_options": VALID_SOURCES,
         "project_options": project_options,
         "status_options": status_options,
         "assignee_options": assignee_options,
+        "reporter_options": reporter_options,
         "priority_options": priority_options,
+        "sprint_options": sprint_options,
+        "issue_type_options": issue_type_options,
+        "label_options": label_options,
         "sort_field_options": VALID_SORT_FIELDS,
         "sort_order_options": VALID_SORT_ORDERS,
     }
+
+
+def _normalize_list(value):
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return [str(item).strip() for item in value if str(item).strip()]

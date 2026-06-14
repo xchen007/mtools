@@ -1,16 +1,24 @@
-<aside class="app-rail">
+<aside class="app-rail" aria-label="Service Status">
   {% for section in shell_rail_sections %}
     <section class="rail-box" data-rail-section="{{ section.title|slugify }}">
       <h2 class="rail-title">{{ section.title }}</h2>
       {% for item in section.items %}
-        <div class="rail-item">
-          <span>{{ item.label }}</span>
-          <span>{{ item.value }}</span>
+        <div class="rail-item" data-rail-status="{{ item.status }}">
+          <span class="rail-item__icon" aria-hidden="true">{{ item.icon|default:item.label|slice:":1" }}</span>
+          <span class="rail-item__body">
+            <span class="rail-item__label">{{ item.label }}</span>
+            <span class="rail-item__value">{{ item.value }}</span>
+          </span>
+          <span class="rail-item__status">{{ item.status|default:"ok" }}</span>
         </div>
       {% empty %}
         <div class="rail-item rail-item--empty" data-rail-empty>
-          <span>No data</span>
-          <span>--</span>
+          <span class="rail-item__icon" aria-hidden="true">?</span>
+          <span class="rail-item__body">
+            <span class="rail-item__label">No data</span>
+            <span class="rail-item__value">--</span>
+          </span>
+          <span class="rail-item__status">unknown</span>
         </div>
       {% endfor %}
     </section>

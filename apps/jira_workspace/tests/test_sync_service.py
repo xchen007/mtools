@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from unittest.mock import Mock
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from jira_workspace.models import (
     JiraIssue,
@@ -429,3 +429,16 @@ class JiraWorkspaceSyncServiceTests(TestCase):
 
         assert status["has_external_blocker"] is True
         assert status["blocker_message"] == "External Jira access is currently blocked."
+
+    @override_settings(
+        JIRA_SIMULATION_MODE=True,
+        JIRA_SIMULATION_SCENARIO="default",
+        JIRA_API_BASE_URL="https://jira.example.com",
+        JIRA_API_TOKEN="token",
+    )
+    def test_jira_client_uses_fake_adapter_when_simulation_mode_enabled(self):
+        service = SyncService()
+
+        adapter = service._jira_client()
+
+        assert adapter.__class__.__name__ == "FakeJiraAdapter"

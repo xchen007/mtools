@@ -9,6 +9,7 @@
       <h1 class="page-title">Jira Sync</h1>
       <p class="page-subtitle">Sync profiles, recent runs, and external Jira blocker visibility.</p>
     </div>
+    {% include "jira_workspace/partials/star_button.html" with star=page_star %}
   </div>
 
   <div class="dashboard-grid dashboard-grid--main-first">
@@ -19,12 +20,17 @@
       </div>
       <div class="profile-list">
         {% for profile in profiles %}
-          <a class="profile-card" href="?profile={{ profile.id }}">
+          <article class="profile-card">
             <div class="profile-card__header">
-              <h3 class="profile-card__title">{{ profile.name }}</h3>
-              {% if profile.is_default %}
-                <span class="status-pill status-pill--neutral">Default</span>
-              {% endif %}
+              <h3 class="profile-card__title">
+                <a href="?profile={{ profile.id }}">{{ profile.name }}</a>
+              </h3>
+              <div class="query-card__flags">
+                {% if profile.is_default %}
+                  <span class="status-pill status-pill--neutral">Default</span>
+                {% endif %}
+                {% include "jira_workspace/partials/star_button.html" with star=profile.star %}
+              </div>
             </div>
             <dl class="meta-grid">
               <div>
@@ -36,7 +42,7 @@
                 <dd class="meta-grid__code">{{ profile.last_cursor|default:"-" }}</dd>
               </div>
             </dl>
-          </a>
+          </article>
         {% empty %}
           <p class="empty-state">No sync profiles configured yet.</p>
         {% endfor %}

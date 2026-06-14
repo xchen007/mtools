@@ -1,5 +1,7 @@
 # Query Card Workbench Design
 
+Current-state note, 2026-06-14: this design has been implemented and evolved. `/jira/query/` is now the visible Jira dashboard/workbench. Query Cards live directly in the shared left sidebar, the sidebar is resizable and persisted locally, and the fixed Jira `Dashboard / Query / Issues / Sync` secondary menu is no longer visible. Data freshness is not guaranteed by opening a card; it depends on the latest successful live Jira sync for the relevant profile.
+
 ## Goal
 
 Turn the Jira Query area into a configurable personal query-results workbench. The app should not replicate Jira's official product UI. It should let the user create reusable query cards, select one card, and view that card's result set in a shared, high-quality table layout with a lightweight detail drawer.

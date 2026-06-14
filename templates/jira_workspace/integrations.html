@@ -9,9 +9,25 @@
       <h1 class="page-title">Integrations</h1>
       <p class="page-subtitle">Grouped tool catalog, contract coverage, and recent scan activity.</p>
     </div>
+    {% include "jira_workspace/partials/star_button.html" with star=page_star %}
   </div>
 
-  <section class="panel panel--tight">
+  <section class="tool-status-strip">
+    <article class="workspace-card workspace-card--static">
+      <strong>{{ integration_groups|length }}</strong>
+      <span>Tool Groups</span>
+    </article>
+    <article class="workspace-card workspace-card--static">
+      <strong>{{ integration_contract_rows|length }}</strong>
+      <span>Contracts</span>
+    </article>
+    <article class="workspace-card workspace-card--static">
+      <strong>{{ integration_recent_runs|length }}</strong>
+      <span>Recent Scans</span>
+    </article>
+  </section>
+
+  <section class="workspace-panel tool-surface">
     <div class="panel__header">
       <h2 class="section-title">Catalog Search</h2>
       <span class="status-pill status-pill--neutral">{{ integration_groups|length }} groups</span>
@@ -22,7 +38,7 @@
   </section>
 
   <div class="stack">
-    <section class="panel">
+    <section class="panel tool-surface">
       <div class="panel__header">
         <h2 class="section-title">Tool Catalog by Type</h2>
       </div>
@@ -57,7 +73,7 @@
       {% endfor %}
     </section>
 
-    <section class="panel">
+    <section class="panel tool-surface">
       <div class="panel__header">
         <h2 class="section-title">Contract Surface Matrix</h2>
       </div>
@@ -99,7 +115,7 @@
       </table>
     </section>
 
-    <section class="panel">
+    <section class="panel tool-surface">
       <div class="panel__header">
         <h2 class="section-title">Recent Scan Activity</h2>
       </div>

@@ -78,6 +78,42 @@ class JiraWorkspaceModelTests(TestCase):
         assert query.is_starred is False
         assert query.is_pinned is False
 
+    def test_saved_query_has_query_card_defaults(self):
+        profile = JiraSyncProfile.objects.create(
+            name="My Issues",
+            profile_type=JiraSyncProfile.ProfileType.MY_ISSUES,
+            params_json={"username": "xchen17"},
+            jql='assignee = "xchen17" ORDER BY updated DESC',
+        )
+        query = JiraSavedQuery.objects.create(
+            name="Assigned to me",
+            profile=profile,
+            filters_json={"source": "assigned"},
+        )
+
+        assert query.card_kind == JiraSavedQuery.CardKind.JIRA_ISSUE_QUERY
+        assert query.query_syntax == JiraSavedQuery.QuerySyntax.LOCAL_FILTER
+        assert query.summary_metrics_json == [
+            "total",
+            "updated_today",
+            "blocked",
+            "in_progress",
+            "high_priority",
+        ]
+        assert query.default_columns_json == [
+            "issue_key",
+            "project_key",
+            "summary",
+            "status",
+            "assignee",
+            "reporter",
+            "priority",
+            "updated_at",
+        ]
+        assert query.default_page_size == 25
+        assert query.position == 0
+        assert query.is_enabled is True
+
     def test_profile_related_names_expose_saved_queries_and_sync_runs(self):
         profile = JiraSyncProfile.objects.create(
             name="My Issues",

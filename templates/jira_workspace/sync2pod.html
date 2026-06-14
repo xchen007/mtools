@@ -9,6 +9,7 @@
       <h1 class="page-title">sync2pod</h1>
       <p class="page-subtitle">Stored profiles, command capability, execution history, and watch state.</p>
     </div>
+    {% include "jira_workspace/partials/star_button.html" with star=page_star %}
   </div>
 
   {% if sync2pod_error_messages %}
@@ -27,17 +28,17 @@
     </section>
   {% endif %}
 
-  <div class="workspace-card-grid workspace-card-grid--compact">
+  <section class="tool-status-strip">
     {% for metric in sync2pod_metrics %}
       <article class="workspace-card workspace-card--static">
         <strong>{{ metric.value }}</strong>
         <span>{{ metric.label }}</span>
       </article>
     {% endfor %}
-  </div>
+  </section>
 
   <div class="dashboard-grid dashboard-grid--main-first">
-    <section class="panel">
+    <section class="workspace-panel tool-surface">
       <div class="panel__header">
         <h2 class="section-title">Project Configuration Manager</h2>
         <span class="status-pill status-pill--neutral">{{ sync2pod_profiles|length }} profiles</span>
@@ -48,10 +49,15 @@
           {% for profile in sync2pod_profiles %}
             <article class="profile-card">
               <div class="profile-card__header">
-                <h3 class="profile-card__title">{{ profile.name }}</h3>
-                <span class="status-pill {% if profile.is_enabled %}status-pill--success{% else %}status-pill--neutral{% endif %}">
-                  {% if profile.is_enabled %}Enabled{% else %}Disabled{% endif %}
-                </span>
+                <h3 class="profile-card__title">
+                  <a href="?profile={{ profile.id }}">{{ profile.name }}</a>
+                </h3>
+                <div class="query-card__flags">
+                  <span class="status-pill {% if profile.is_enabled %}status-pill--success{% else %}status-pill--neutral{% endif %}">
+                    {% if profile.is_enabled %}Enabled{% else %}Disabled{% endif %}
+                  </span>
+                  {% include "jira_workspace/partials/star_button.html" with star=profile.star %}
+                </div>
               </div>
               <dl class="meta-grid">
                 <div>
@@ -86,31 +92,31 @@
           <div class="form-grid">
             <label>
               <span>Name</span>
-              <input type="text" name="name" value="{{ sync2pod_active_profile.name|default:'' }}" required>
+              <input type="text" name="name" value="{{ sync2pod_active_profile.name|default:'' }}" autocomplete="off" required>
             </label>
             <label>
               <span>Pod Name</span>
-              <input type="text" name="pod_name" value="{{ sync2pod_active_profile.pod_name|default:'' }}" required>
+              <input type="text" name="pod_name" value="{{ sync2pod_active_profile.pod_name|default:'' }}" autocomplete="off" required>
             </label>
             <label>
               <span>Namespace</span>
-              <input type="text" name="namespace" value="{{ sync2pod_active_profile.namespace|default:'default' }}">
+              <input type="text" name="namespace" value="{{ sync2pod_active_profile.namespace|default:'default' }}" autocomplete="off">
             </label>
             <label>
               <span>Watch Path</span>
-              <input type="text" name="watch_path" value="{{ sync2pod_active_profile.watch_path|default:'' }}" required>
+              <input type="text" name="watch_path" value="{{ sync2pod_active_profile.watch_path|default:'' }}" autocomplete="off" required>
             </label>
             <label>
               <span>Config Path</span>
-              <input type="text" name="config_path" value="{{ sync2pod_active_profile.config_path|default:'' }}">
+              <input type="text" name="config_path" value="{{ sync2pod_active_profile.config_path|default:'' }}" autocomplete="off">
             </label>
             <label>
               <span>Command</span>
-              <input type="text" name="command" value="{{ sync2pod_active_profile.command|default:'sync2pod' }}" required>
+              <input type="text" name="command" value="{{ sync2pod_active_profile.command|default:'sync2pod' }}" autocomplete="off" required>
             </label>
             <label>
               <span>Extra Args</span>
-              <input type="text" name="extra_args" value="{{ sync2pod_active_profile.extra_args|default:'' }}">
+              <input type="text" name="extra_args" value="{{ sync2pod_active_profile.extra_args|default:'' }}" autocomplete="off">
             </label>
             <label class="checkbox-row">
               <input type="checkbox" name="is_enabled" {% if sync2pod_active_profile.is_enabled or not sync2pod_active_profile %}checked{% endif %}>
@@ -151,11 +157,11 @@
     </aside>
   </div>
 
-  <section class="panel">
+  <section class="panel tool-surface">
     <div class="panel__header">
       <h2 class="section-title">Sync Strategy Panel</h2>
     </div>
-    <div class="workspace-card-grid workspace-card-grid--compact">
+    <div class="tool-status-strip">
       {% for item in sync2pod_strategy_items %}
         <article class="workspace-card workspace-card--static">
           <strong>{{ item.value }}</strong>
@@ -165,7 +171,7 @@
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel tool-surface">
     <div class="panel__header">
       <h2 class="section-title">Execution Console</h2>
     </div>
@@ -194,7 +200,7 @@
   </section>
 
   <div class="dashboard-grid">
-    <section class="panel">
+    <section class="panel tool-surface">
       <div class="panel__header">
         <h2 class="section-title">Watch Mode</h2>
         <span class="status-pill status-pill--neutral">{{ sync2pod_queued_events|length }} queued</span>
@@ -214,7 +220,7 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel tool-surface">
       <div class="panel__header">
         <h2 class="section-title">Archive / Chunk Upload Insights</h2>
       </div>
@@ -232,11 +238,11 @@
     </section>
   </div>
 
-  <section class="panel">
+  <section class="panel tool-surface">
     <div class="panel__header">
       <h2 class="section-title">Safety / Validation Strip</h2>
     </div>
-    <div class="workspace-card-grid workspace-card-grid--compact">
+    <div class="tool-status-strip">
       {% for item in sync2pod_safety_items %}
         <article class="workspace-card workspace-card--static">
           <strong>{{ item.value }}</strong>
@@ -246,7 +252,7 @@
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel tool-surface">
     <div class="panel__header">
       <h2 class="section-title">Recent Runs</h2>
       <span class="status-pill status-pill--neutral">{{ sync2pod_runs|length }} entries</span>

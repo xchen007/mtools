@@ -99,6 +99,8 @@ class JiraAdapter:
             "assignee": self._identity_value(fields.get("assignee")),
             "reporter": self._identity_value(fields.get("reporter")),
             "priority": self._display_value(fields.get("priority")),
+            "issue_type": self._display_value(fields.get("issuetype")) or "",
+            "labels_json": self._labels_value(fields.get("labels")),
             "updated_at": self._parse_datetime(fields.get("updated")),
             "created_at": self._parse_datetime(fields.get("created")),
             "sprint": self._extract_sprint(fields),
@@ -126,6 +128,14 @@ class JiraAdapter:
         if isinstance(value, dict):
             return value.get("name") or value.get("displayName") or value.get("value")
         return str(value)
+
+    @staticmethod
+    def _labels_value(value):
+        if not value:
+            return []
+        if isinstance(value, (list, tuple)):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return [str(value).strip()] if str(value).strip() else []
 
     @classmethod
     def _parse_datetime(cls, value):

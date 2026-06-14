@@ -1,136 +1,58 @@
 {% extends "jira_workspace/base.html" %}
 
-{% block title %}Jira Query | mtools{% endblock %}
+{% block title %}Jira Dashboard | mtools{% endblock %}
 
 {% block content %}
-<section class="page-section">
-  <div class="page-header">
-    <div>
-      <h1 class="page-title">Jira Query</h1>
-      <p class="page-subtitle">Pinned and reusable Jira filters for day-to-day triage.</p>
-    </div>
-  </div>
+<section class="query-workbench page-section">
+  <section class="query-workbench__main">
+    {% if selected_card %}
+      {% include "jira_workspace/partials/query_card_header.html" with selected_card=selected_card %}
 
-  <div class="dashboard-grid dashboard-grid--main-first">
-    <section class="panel">
-      <div class="panel__header">
-        <h2 class="section-title">Query Library</h2>
-        <span class="status-pill status-pill--neutral">{{ saved_queries|length }} saved</span>
-      </div>
-      {% include "jira_workspace/partials/query_library.html" with saved_queries=saved_queries selected_query=selected_query %}
-    </section>
-
-    <aside class="dashboard-sidebar">
-      <section class="panel panel--tight">
-        <div class="panel__header">
-          <h2 class="section-title">Query Details</h2>
-        </div>
-        {% if selected_query %}
-          <div class="recent-list">
-            <article class="recent-item">
-              <div class="recent-item__top">
-                <span class="issue-key">JQL</span>
-                <span class="issue-status">{{ selected_query.profile.name }}</span>
-              </div>
-              <div class="recent-item__summary">{{ selected_query.description|default:"Reusable query configuration." }}</div>
-              <pre class="meta-grid__code">{{ selected_query.jql_text|default:selected_query.profile.jql|default:"-" }}</pre>
-            </article>
-            {% for item in selected_query_filters %}
-              <article class="recent-item">
-                <div class="recent-item__top">
-                  <span class="issue-key">{{ item.label }}</span>
-                  <span class="issue-status">{{ item.value }}</span>
-                </div>
-              </article>
-            {% endfor %}
-          </div>
-        {% else %}
-          <p class="empty-state">No query selected.</p>
-        {% endif %}
+      <section class="query-card-config-strip" aria-label="Selected card configuration">
+        <article class="query-card-config">
+          <span>Card type</span>
+          <strong>{{ selected_card.get_card_kind_display }}</strong>
+        </article>
+        <article class="query-card-config">
+          <span>Query syntax</span>
+          <strong>{{ selected_card.get_query_syntax_display }}</strong>
+        </article>
+        <article class="query-card-config">
+          <span>Default view</span>
+          <strong>Table · compact · {{ selected_card.default_page_size }} rows</strong>
+        </article>
+        <article class="query-card-config">
+          <span>Persistence</span>
+          <strong>Per card layout settings</strong>
+        </article>
       </section>
-    </aside>
-  </div>
 
-  <div class="dashboard-grid dashboard-grid--main-first">
-    <section class="panel">
-      <div class="panel__header">
-        <h2 class="section-title">Query Results</h2>
-        <span class="status-pill status-pill--neutral">{{ query_rows|length }} rows</span>
-      </div>
-      {% include "jira_workspace/partials/ticket_table.html" with ticket_rows=query_rows %}
-    </section>
-
-    <aside class="dashboard-sidebar">
-      <section class="panel panel--tight">
-        <div class="panel__header">
-          <h2 class="section-title">Query Editor</h2>
+      <section class="query-card-rule" aria-label="Selected query rule">
+        <div class="query-card-rule__meta">
+          <span>Query rule</span>
+          <strong>{{ selected_card.get_query_syntax_display }}</strong>
         </div>
-        <form method="post" class="config-form">
-          {% csrf_token %}
-          <input type="hidden" name="action" value="save_query">
-          {% if selected_query %}
-            <input type="hidden" name="saved_query_id" value="{{ selected_query.id }}">
-          {% endif %}
-          <div class="form-grid">
-            <label>
-              <span>Name</span>
-              <input type="text" name="name" value="{{ query_form.name.value|default:'' }}" required>
-            </label>
-            <label>
-              <span>Profile</span>
-              <select name="profile" required>
-                {% for value, label in query_form.fields.profile.choices %}
-                  <option value="{{ value }}"{% if query_form.profile.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-              </select>
-            </label>
-            <label>
-              <span>Project Filters</span>
-              <input type="text" name="project_values" value="{{ query_form.project_values.value|default:'' }}" placeholder="OPS, TESS">
-            </label>
-            <label>
-              <span>Status Filters</span>
-              <input type="text" name="status_values" value="{{ query_form.status_values.value|default:'' }}" placeholder="Blocked, Review">
-            </label>
-            <label>
-              <span>Sort By</span>
-              <select name="sort_by">
-                {% for value, label in query_form.fields.sort_by.choices %}
-                  <option value="{{ value }}"{% if query_form.sort_by.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-              </select>
-            </label>
-            <label>
-              <span>Sort Order</span>
-              <select name="sort_order">
-                {% for value, label in query_form.fields.sort_order.choices %}
-                  <option value="{{ value }}"{% if query_form.sort_order.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-              </select>
-            </label>
-            <label>
-              <span>Description</span>
-              <input type="text" name="description" value="{{ query_form.description.value|default:'' }}">
-            </label>
-            <label>
-              <span>JQL</span>
-              <input type="text" name="jql_text" value="{{ query_form.jql_text.value|default:'' }}">
-            </label>
-            <label class="checkbox-row">
-              <input type="checkbox" name="is_pinned" {% if query_form.is_pinned.value %}checked{% endif %}>
-              <span>Pinned</span>
-            </label>
-            <label class="checkbox-row">
-              <input type="checkbox" name="is_starred" {% if query_form.is_starred.value %}checked{% endif %}>
-              <span>Starred</span>
-            </label>
-          </div>
-          <div class="toolbar toolbar--actions">
-            <button type="submit">Save Query</button>
-          </div>
-        </form>
+        <code>{{ selected_card.query_preview|default:selected_card.description|default:"No query rule configured" }}</code>
       </section>
-    </aside>
-  </div>
+
+      <section class="panel dashboard-main query-workbench__results">
+        <div class="panel__header">
+          <h2 class="section-title">Query Results</h2>
+          {% include "jira_workspace/partials/query_card_summary.html" with metrics=query_card_metrics %}
+        </div>
+        {% include "jira_workspace/partials/ticket_table.html" with ticket_rows=query_rows rich_table_id="jira-query-results" rich_table_persist_scope=query_card_persistence_scope rich_table_row_click="drawer" rich_table_page_size=selected_card.default_page_size rich_table_fill_height=True %}
+      </section>
+    {% else %}
+      <section class="panel query-workbench__empty">
+        <div class="panel__header">
+          <h2 class="section-title">Create your first Query Card</h2>
+        </div>
+        <p class="empty-state">No query cards exist yet. Use New Card to create a reusable result view.</p>
+        <button class="button" type="button" data-query-card-editor-open>New Card</button>
+      </section>
+    {% endif %}
+  </section>
+
+  {% include "jira_workspace/partials/ticket_detail_drawer.html" %}
 </section>
 {% endblock %}

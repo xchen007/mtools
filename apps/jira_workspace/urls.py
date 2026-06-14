@@ -5,7 +5,9 @@ from . import views
 app_name = "jira_workspace"
 
 urlpatterns = [
+    path("star/toggle/", views.toggle_star, name="toggle_star"),
     path("workspace/", views.workspace_home, name="workspace_home"),
+    path("live-state/", views.live_state, name="live_state"),
     path("dashboard/", views.dashboard, name="dashboard"),
     path("dashboard/tickets/", views.dashboard_ticket_table, name="dashboard_ticket_table"),
     path("queries/", views.queries, name="queries"),

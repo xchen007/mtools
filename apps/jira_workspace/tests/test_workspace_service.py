@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.test import TestCase
 from django.utils import timezone
@@ -8,10 +9,13 @@ from jira_workspace.models import (
     IntegrationTool,
     JiraSyncProfile,
     JiraSyncRun,
+    JiraSavedQuery,
     Sync2PodProfile,
     Sync2PodRun,
     Sync2PodWatchEvent,
+    WorkspaceStar,
 )
+from jira_workspace.services.star_service import StarService
 from jira_workspace.services.workspace_service import WorkspaceService
 
 
@@ -93,7 +97,132 @@ class WorkspaceServiceTests(TestCase):
     def test_build_rail_sections_reports_cross_tool_activity(self):
         sections = WorkspaceService().build_rail_sections()
 
-        assert [section["title"] for section in sections] == ["Activity", "Health"]
-        assert sections[0]["items"][0]["label"] == "Jira sync runs"
-        assert sections[0]["items"][1]["label"] == "sync2pod queue"
-        assert sections[0]["items"][2]["label"] == "integration scans"
+        assert [section["title"] for section in sections] == ["Service Status"]
+        assert sections[0]["items"][0] == {
+            "label": "Jira",
+            "value": "1 run",
+            "status": "ok",
+            "icon": "J",
+        }
+        assert sections[0]["items"][1] == {
+            "label": "sync2pod",
+            "value": "1 queued",
+            "status": "blocked",
+            "icon": "S",
+        }
+        assert sections[0]["items"][2] == {
+            "label": "Integrations",
+            "value": "1 scan",
+            "status": "ok",
+            "icon": "I",
+        }
+
+    @patch(
+        "jira_workspace.services.sync2pod_service.Sync2PodService.check_capabilities",
+        return_value={
+            "is_available": False,
+            "message": "sync2pod command is not available on this host.",
+            "command_path": "sync2pod",
+        },
+    )
+    def test_build_home_context_marks_sync2pod_blocked_when_command_is_unavailable(
+        self,
+        _check_capabilities,
+    ):
+        Sync2PodRun.objects.all().delete()
+
+        context = WorkspaceService().build_home_context()
+
+        sync2pod_health = next(
+            item for item in context["health_items"] if item["label"] == "sync2pod"
+        )
+        assert sync2pod_health["value"] == "blocked"
+
+    @patch(
+        "jira_workspace.services.sync2pod_service.Sync2PodService.check_capabilities",
+        return_value={
+            "is_available": False,
+            "message": "sync2pod command is not available on this host.",
+            "command_path": "sync2pod",
+        },
+    )
+    def test_build_home_context_surfaces_sync2pod_capability_message_in_summary_card(
+        self,
+        _check_capabilities,
+    ):
+        Sync2PodRun.objects.all().delete()
+
+        context = WorkspaceService().build_home_context()
+
+        sync2pod_card = next(
+            card for card in context["summary_cards"] if card["title"] == "sync2pod Queue"
+        )
+        assert sync2pod_card["detail"] == "sync2pod command is not available on this host."
+
+    def test_build_shell_navigation_groups_tools_current_tool_and_starred_items(self):
+        JiraSavedQuery.objects.create(
+            name="My Open Blockers",
+            profile=JiraSyncProfile.objects.get(name="My Issues"),
+            jql_text='status = "Blocked"',
+        )
+        WorkspaceStar.objects.create(
+            kind=WorkspaceStar.Kind.ROUTE,
+            label="Jira Issues",
+            route="/jira/issues/",
+            group_key="jira",
+        )
+        WorkspaceStar.objects.create(
+            kind=WorkspaceStar.Kind.SAVED_QUERY,
+            label="My Open Blockers",
+            route="/jira/query/?saved_query=1",
+            group_key="jira",
+            object_id="1",
+        )
+
+        shell = WorkspaceService().build_shell_navigation(current_route_name="issues")
+
+        assert [item["label"] for item in shell["tools"]] == [
+            "Workspace",
+            "Jira",
+            "sync2pod",
+            "Integrations",
+        ]
+        assert shell["current_tool"]["key"] == "jira"
+        assert shell["current_sections"] == []
+        assert [item["label"] for item in shell["starred_items"]] == [
+            "Jira Issues",
+            "My Open Blockers",
+        ]
+
+    def test_build_shell_navigation_only_expands_current_tool_sections(self):
+        shell = WorkspaceService().build_shell_navigation(current_route_name="sync2pod")
+
+        assert shell["current_tool"]["key"] == "sync2pod"
+        assert shell["current_sections"] == []
+
+    def test_star_service_toggles_route_and_object_entries(self):
+        saved_query = JiraSavedQuery.objects.create(
+            name="My Open Blockers",
+            profile=JiraSyncProfile.objects.get(name="My Issues"),
+            jql_text='status = "Blocked"',
+        )
+        service = StarService()
+
+        first = service.toggle(
+            kind=WorkspaceStar.Kind.SAVED_QUERY,
+            label=saved_query.name,
+            route=f"/jira/query/?saved_query={saved_query.id}",
+            group_key="jira",
+            object_id=str(saved_query.id),
+        )
+        second = service.toggle(
+            kind=WorkspaceStar.Kind.SAVED_QUERY,
+            label=saved_query.name,
+            route=f"/jira/query/?saved_query={saved_query.id}",
+            group_key="jira",
+            object_id=str(saved_query.id),
+        )
+
+        assert first.created is True
+        assert second.created is False
+        assert WorkspaceStar.objects.count() == 0

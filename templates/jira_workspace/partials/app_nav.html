@@ -1,38 +1,31 @@
-<aside class="app-nav">
-  <div class="app-brand">mtools</div>
+<aside class="app-nav app-nav--commercial" data-app-nav>
   <div class="workspace-chip">
-    Workspace: core
-    <br>
-    Mode: Django
+    <span>Workspace: core</span>
+    <span>Mode: Django</span>
   </div>
-  <nav class="nav-group" aria-label="Workspace">
-    <a class="nav-link{% if request.path == '/workspace/' or request.resolver_match.url_name == 'workspace_home' %} active{% endif %}" href="/workspace/">
-      <span>Workspace</span>
-      <span class="nav-badge">Home</span>
-    </a>
-    <a class="nav-link{% if request.resolver_match.url_name == 'dashboard' %} active{% endif %}" href="{% url 'jira_workspace:dashboard' %}">
-      <span>Jira Dashboard</span>
-      <span class="nav-badge">Jira</span>
-    </a>
-    <a class="nav-link{% if request.resolver_match.url_name == 'query' or request.resolver_match.url_name == 'queries' %} active{% endif %}" href="{% url 'jira_workspace:query' %}">
-      <span>Jira Query</span>
-      <span class="nav-badge">Query</span>
-    </a>
-    <a class="nav-link{% if request.resolver_match.url_name == 'issues' %} active{% endif %}" href="{% url 'jira_workspace:issues' %}">
-      <span>Jira Issues</span>
-      <span class="nav-badge">List</span>
-    </a>
-    <a class="nav-link{% if request.resolver_match.url_name == 'sync' or request.resolver_match.url_name == 'profiles' %} active{% endif %}" href="{% url 'jira_workspace:sync' %}">
-      <span>Jira Sync</span>
-      <span class="nav-badge">Sync</span>
-    </a>
-    <a class="nav-link{% if request.path == '/sync2pod/' or request.resolver_match.url_name == 'sync2pod' %} active{% endif %}" href="/sync2pod/">
-      <span>sync2pod</span>
-      <span class="nav-badge">Exec</span>
-    </a>
-    <a class="nav-link{% if request.path == '/integrations/' or request.resolver_match.url_name == 'integrations' %} active{% endif %}" href="/integrations/">
-      <span>Integrations</span>
-      <span class="nav-badge">Catalog</span>
-    </a>
+
+  <nav class="nav-block nav-block--query-cards" aria-label="Jira Query Cards">
+    {% include "jira_workspace/partials/query_card_nav.html" with query_cards=query_cards selected_card=selected_card %}
   </nav>
+
+  <nav class="nav-block" aria-label="Starred">
+    <div class="nav-heading nav-section-label">Starred</div>
+    <div class="nav-group nav-group--starred">
+      {% for item in shell_starred_items %}
+        <a class="nav-link nav-link--starred" href="{{ item.href }}" title="{{ item.label }} · {{ item.group_key }}">
+          <span class="nav-link__label">{{ item.label }}</span>
+          <span class="nav-badge nav-link__hint">{{ item.group_key }}</span>
+        </a>
+      {% empty %}
+        <span class="nav-empty">No starred items.</span>
+      {% endfor %}
+    </div>
+  </nav>
+  <button
+    class="app-nav__resize-handle"
+    type="button"
+    data-sidebar-resize-handle
+    aria-label="Resize sidebar"
+    title="Resize sidebar"
+  ></button>
 </aside>

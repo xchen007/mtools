@@ -1,6 +1,23 @@
 from django.db import models
 
 
+def default_query_card_summary_metrics():
+    return ["total", "updated_today", "blocked", "in_progress", "high_priority"]
+
+
+def default_query_card_columns():
+    return [
+        "issue_key",
+        "project_key",
+        "summary",
+        "status",
+        "assignee",
+        "reporter",
+        "priority",
+        "updated_at",
+    ]
+
+
 class JiraIssue(models.Model):
     issue_key = models.CharField(max_length=32, primary_key=True)
     project_key = models.CharField(max_length=32, db_index=True)
@@ -10,6 +27,8 @@ class JiraIssue(models.Model):
     reporter = models.CharField(max_length=128, blank=True, null=True, db_index=True)
     priority = models.CharField(max_length=64, blank=True, null=True)
     sprint = models.TextField(blank=True, null=True)
+    issue_type = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    labels_json = models.JSONField(default=list, blank=True)
     updated_at = models.DateTimeField(db_index=True)
     created_at = models.DateTimeField(blank=True, null=True)
     raw_json = models.TextField()
@@ -101,11 +120,39 @@ class JiraIssueSyncMembership(models.Model):
 
 
 class JiraSavedQuery(models.Model):
+    class CardKind(models.TextChoices):
+        JIRA_ISSUE_QUERY = "jira_issue_query", "Jira Issue Query"
+
+    class QuerySyntax(models.TextChoices):
+        LOCAL_FILTER = "local_filter", "Local Filter"
+        JQL_TEXT = "jql_text", "JQL Text"
+        SAVED_FILTER_REFERENCE = "saved_filter_reference", "Saved Filter Reference"
+
     name = models.CharField(max_length=120, unique=True)
     profile = models.ForeignKey(JiraSyncProfile, on_delete=models.CASCADE, related_name="saved_queries")
     description = models.TextField(blank=True)
     filters_json = models.JSONField(default=dict, blank=True)
     jql_text = models.TextField(blank=True)
+    card_kind = models.CharField(
+        max_length=48,
+        default=CardKind.JIRA_ISSUE_QUERY,
+    )
+    query_syntax = models.CharField(
+        max_length=48,
+        choices=QuerySyntax.choices,
+        default=QuerySyntax.LOCAL_FILTER,
+    )
+    summary_metrics_json = models.JSONField(
+        default=default_query_card_summary_metrics,
+        blank=True,
+    )
+    default_columns_json = models.JSONField(
+        default=default_query_card_columns,
+        blank=True,
+    )
+    default_page_size = models.PositiveIntegerField(default=25)
+    position = models.PositiveIntegerField(default=0)
+    is_enabled = models.BooleanField(default=True)
     is_starred = models.BooleanField(default=False)
     is_pinned = models.BooleanField(default=False)
     sort_by = models.CharField(max_length=32, default="updated_at")
@@ -197,6 +244,34 @@ class Sync2PodWatchEvent(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class WorkspaceStar(models.Model):
+    class Kind(models.TextChoices):
+        ROUTE = "route", "Route"
+        SAVED_QUERY = "saved_query", "Saved Query"
+        JIRA_SYNC_PROFILE = "jira_sync_profile", "Jira Sync Profile"
+        SYNC2POD_PROFILE = "sync2pod_profile", "sync2pod Profile"
+
+    kind = models.CharField(max_length=48, choices=Kind.choices)
+    label = models.CharField(max_length=160)
+    route = models.CharField(max_length=255)
+    group_key = models.CharField(max_length=80, db_index=True)
+    object_id = models.CharField(max_length=80, blank=True, default="")
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["position", "created_at", "label"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["kind", "route", "object_id"],
+                name="jira_workspace_unique_workspace_star",
+            )
+        ]
+
+    def __str__(self):
+        return self.label
 
 
 class IntegrationTool(models.Model):

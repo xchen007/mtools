@@ -7,12 +7,19 @@
 The active app is `apps/jira_workspace`. It now provides:
 
 - `/workspace/` for cross-tool summary cards, health, and recent activity
-- `/jira/dashboard/` for issue metrics and recent tickets
-- `/jira/query/` for saved Jira query presets
-- `/jira/issues/` for filterable issue results
-- `/jira/sync/` for Jira sync profiles, runs, and blocker states
+- `/jira/query/` as the visible Jira Query Card dashboard/workbench
 - `/sync2pod/` for stored sync2pod profiles, run logs, and queued watch events
 - `/integrations/` for grouped tool catalog, contract matrix, and recent scan activity
+
+Jira's visible workflow is card-centric. The top Jira tool button points to `/jira/query/`, the left sidebar lists Query Cards, and individual cards render their metrics, table, and detail drawer in one shared workbench.
+
+Legacy Jira routes are intentionally still available for compatibility and diagnostics, but they are no longer primary navigation entries:
+
+- `/jira/dashboard/`
+- `/jira/issues/`
+- `/jira/sync/`
+
+`/jira/sync/` manages Jira cache refresh profiles and run history. Query Cards read from the local Jira cache, so data freshness depends on the most recent successful live sync, not on opening the Query Card page.
 
 The root route `/` redirects to `/workspace/`.
 
@@ -36,37 +43,59 @@ Apply migrations:
 python manage.py migrate
 ```
 
-Start the dev server on the default local port:
+Start the dev server on the current local port:
 
 ```bash
-python manage.py runserver 127.0.0.1:8011
+python manage.py runserver 127.0.0.1:8001
 ```
 
-If port `8011` is already in use, check the listener and switch to another port:
+For a long-lived local server in this Codex/tool environment, use a detached `screen` session so the process is not cleaned up when a shell command exits:
 
 ```bash
-lsof -nP -iTCP:8011 -sTCP:LISTEN
-python manage.py runserver 127.0.0.1:8020
+screen -dmS mtools-server zsh -lc 'cd /Users/xchen17/workspace/mtools && exec ./.venv/bin/python -u manage.py runserver 127.0.0.1:8001 --noreload'
+screen -ls
+lsof -nP -iTCP:8001 -sTCP:LISTEN
+```
+
+Stop it with:
+
+```bash
+screen -S mtools-server -X quit
 ```
 
 ## Verification Routes
 
 Open these pages after the server starts:
 
-- `http://127.0.0.1:8011/workspace/`
-- `http://127.0.0.1:8011/jira/dashboard/`
-- `http://127.0.0.1:8011/jira/query/`
-- `http://127.0.0.1:8011/jira/issues/`
-- `http://127.0.0.1:8011/jira/sync/`
-- `http://127.0.0.1:8011/sync2pod/`
-- `http://127.0.0.1:8011/integrations/`
+- `http://127.0.0.1:8001/workspace/`
+- `http://127.0.0.1:8001/jira/query/`
+- `http://127.0.0.1:8001/sync2pod/`
+- `http://127.0.0.1:8001/integrations/`
+
+Optional legacy/diagnostic Jira pages:
+
+- `http://127.0.0.1:8001/jira/dashboard/`
+- `http://127.0.0.1:8001/jira/issues/`
+- `http://127.0.0.1:8001/jira/sync/`
 
 Verified on the current repo snapshot:
 
 - `python manage.py check` returns `System check identified no issues (0 silenced).`
-- `python manage.py runserver 127.0.0.1:8020` starts successfully
+- `python manage.py runserver 127.0.0.1:8001` starts successfully
 - `GET /` returns `302` to `/workspace/`
 - `GET /workspace/` returns `200`
+- `GET /jira/query/` returns `200`
+
+## Jira Data Freshness
+
+The Query Card workbench displays locally cached `JiraIssue` rows. To determine whether those rows are fresh, check:
+
+- the latest successful `JiraSyncRun` for the relevant `JiraSyncProfile`
+- the profile's `last_cursor`
+- whether the latest run used live Jira access or simulation data
+- whether the latest run failed with an external blocker such as Jira `403`
+
+Current local databases can contain seeded or simulated rows. A successful simulated sync proves UI and sync logic, but it does not prove that live Jira ticket status is current.
 
 ## Environment
 
@@ -78,6 +107,23 @@ JIRA_API_TOKEN
 JIRA_AUTH_TYPE
 JIRA_USER_EMAIL
 ```
+
+For full local simulation without Jira network access, enable the fake adapter and seed the local cache:
+
+```bash
+export JIRA_SIMULATION_MODE=true
+export JIRA_SIMULATION_SCENARIO=default
+python manage.py seed_fake_jira
+python manage.py runserver 127.0.0.1:8001
+```
+
+Additional simulation settings:
+
+```bash
+JIRA_SIMULATION_FIXTURE_PATH
+```
+
+This loads fixture-backed Jira identity and issue data from `apps/jira_workspace/fixtures/jira_simulation.json`. The sync UI can then run incremental and full syncs without talking to a real Jira server.
 
 Known external limitation:
 
@@ -101,7 +147,7 @@ python manage.py test apps.jira_workspace.tests -v 2
 Verified on the current repo snapshot:
 
 - `python manage.py test apps.jira_workspace.tests.test_app_boot -v 2` passes with `3` tests
-- `python manage.py test apps.jira_workspace.tests -v 2` passes with `66` tests
+- `python manage.py test apps.jira_workspace.tests -v 2` passes with `130` tests
 
 ## Project Structure
 

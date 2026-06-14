@@ -5,18 +5,36 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ shell_title|default:"mtools" }} | mtools{% endblock %}</title>
+  <link rel="icon" href="data:,">
+  <script>
+    (function () {
+      try {
+        var mode = window.localStorage.getItem("mtools.theme.mode") || "system";
+        var resolved = mode === "system"
+          ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+          : mode;
+        document.documentElement.setAttribute("data-theme", mode);
+        document.documentElement.setAttribute("data-resolved-theme", resolved);
+      } catch (error) {
+        document.documentElement.setAttribute("data-theme", "system");
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="https://unpkg.com/tabulator-tables@6.4.0/dist/css/tabulator_midnight.min.css">
   <link rel="stylesheet" href="{% static 'jira_workspace/jira.css' %}">
 </head>
 <body class="workspace-body">
   <div class="app-shell">
+    {% include "jira_workspace/partials/topbar.html" %}
     {% include "jira_workspace/partials/app_nav.html" %}
     <main class="app-main">
-      {% include "jira_workspace/partials/topbar.html" %}
-      <div class="workspace-breadcrumb">{{ shell_breadcrumb|default:"Workspace" }}</div>
       {% block content %}{% endblock %}
     </main>
     {% include "jira_workspace/partials/app_rail.html" %}
   </div>
+  {% include "jira_workspace/partials/settings_drawer.html" %}
+  {% include "jira_workspace/partials/query_card_editor_drawer.html" %}
+  <script src="https://unpkg.com/tabulator-tables@6.4.0/dist/js/tabulator.min.js"></script>
   <script src="{% static 'jira_workspace/jira.js' %}"></script>
 </body>
 </html>

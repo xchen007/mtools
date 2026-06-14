@@ -9,6 +9,7 @@
       <h1 class="page-title">Jira Issues</h1>
       <p class="page-subtitle">Local-cache issue browsing with reusable saved views and filter state.</p>
     </div>
+    {% include "jira_workspace/partials/star_button.html" with star=page_star %}
   </div>
 
   <section class="panel">
@@ -36,28 +37,28 @@
       <h2 class="section-title">Filters</h2>
     </div>
     <form method="get" class="toolbar">
-      <input type="search" name="query" value="{{ issue_filter_form.query.value|default:'' }}" placeholder="Search issue key or summary">
-      <select name="source">
+      <input type="search" name="query" value="{{ issue_filter_form.query.value|default:'' }}" placeholder="Search issue key or summary" aria-label="Search issue key or summary">
+      <select name="source" aria-label="Issue source">
         {% for value, label in issue_filter_form.fields.source.choices %}
           <option value="{{ value }}"{% if issue_filter_form.source.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
-      <select name="project">
+      <select name="project" aria-label="Issue project">
         {% for value, label in issue_filter_form.fields.project.choices %}
           <option value="{{ value }}"{% if issue_filter_form.project.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
-      <select name="status">
+      <select name="status" aria-label="Issue status">
         {% for value, label in issue_filter_form.fields.status.choices %}
           <option value="{{ value }}"{% if issue_filter_form.status.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
-      <select name="sort_by">
+      <select name="sort_by" aria-label="Sort issues by">
         {% for value, label in issue_filter_form.fields.sort_by.choices %}
           <option value="{{ value }}"{% if issue_filter_form.sort_by.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
-      <select name="sort_order">
+      <select name="sort_order" aria-label="Sort issue direction">
         {% for value, label in issue_filter_form.fields.sort_order.choices %}
           <option value="{{ value }}"{% if issue_filter_form.sort_order.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
         {% endfor %}
@@ -66,59 +67,14 @@
     </form>
   </section>
 
-  <div class="dashboard-grid dashboard-grid--main-first">
-    <section class="panel dashboard-main">
-      <div class="panel__header">
-        <h2 class="section-title">Issue Results</h2>
-        <span class="status-pill status-pill--neutral">{{ ticket_rows|length }} rows</span>
-      </div>
-      {% include "jira_workspace/partials/ticket_table.html" with ticket_rows=ticket_rows %}
-    </section>
+  <section class="panel dashboard-main">
+    <div class="panel__header">
+      <h2 class="section-title">Issue Results</h2>
+      <span class="status-pill status-pill--neutral">{{ ticket_rows|length }} rows</span>
+    </div>
+    {% include "jira_workspace/partials/ticket_table.html" with ticket_rows=ticket_rows rich_table_id="jira-issues-results" rich_table_persist_scope="/jira/issues/" rich_table_row_click="drawer" %}
+  </section>
 
-    <aside class="dashboard-sidebar">
-      <section class="panel panel--tight">
-        <div class="panel__header">
-          <h2 class="section-title">Issue Detail</h2>
-        </div>
-        {% if selected_issue %}
-          <article class="recent-item">
-            <div class="recent-item__top">
-              <span class="issue-key">{{ selected_issue.issue_key }}</span>
-              <span class="issue-status">{{ selected_issue.status|default:"-" }}</span>
-            </div>
-            <div class="recent-item__summary">{{ selected_issue.summary|default:"No summary provided." }}</div>
-            <dl class="meta-grid">
-              <div>
-                <dt>Project</dt>
-                <dd>{{ selected_issue.project_key|default:"-" }}</dd>
-              </div>
-              <div>
-                <dt>Assignee</dt>
-                <dd>{{ selected_issue.assignee|default:"-" }}</dd>
-              </div>
-              <div>
-                <dt>Reporter</dt>
-                <dd>{{ selected_issue.reporter|default:"-" }}</dd>
-              </div>
-              <div>
-                <dt>Priority</dt>
-                <dd>{{ selected_issue.priority|default:"-" }}</dd>
-              </div>
-              <div>
-                <dt>Sprint</dt>
-                <dd>{{ selected_issue.sprint|default:"-" }}</dd>
-              </div>
-              <div>
-                <dt>Updated</dt>
-                <dd>{{ selected_issue.updated_at|date:"Y-m-d H:i"|default:"-" }}</dd>
-              </div>
-            </dl>
-          </article>
-        {% else %}
-          <p class="empty-state">Select an issue to inspect details.</p>
-        {% endif %}
-      </section>
-    </aside>
-  </div>
+  {% include "jira_workspace/partials/ticket_detail_drawer.html" %}
 </section>
 {% endblock %}
