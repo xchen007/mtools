@@ -4,10 +4,14 @@ from unittest.mock import Mock
 from django.test import TestCase, override_settings
 
 from jira_workspace.models import (
+    GlobalSyncPolicy,
+    GlobalSyncPolicyVersion,
     JiraIssue,
+    JiraIssueScopeMembership,
     JiraIssueSyncMembership,
     JiraSyncProfile,
     JiraSyncRun,
+    SyncScope,
 )
 from jira_workspace.services.sync_service import SyncService
 
@@ -327,6 +331,78 @@ class JiraWorkspaceSyncServiceTests(TestCase):
         assert JiraIssue.objects.filter(issue_key="TESS-321").exists() is True
         assert JiraIssueSyncMembership.objects.filter(profile=profile).exists() is False
         assert JiraIssueSyncMembership.objects.filter(profile=other_profile).exists() is True
+
+    def test_full_sync_keeps_issue_when_policy_membership_remains(self):
+        issue = JiraIssue.objects.create(
+            issue_key="OPS-100",
+            project_key="OPS",
+            summary="Policy-only issue",
+            status="To Do",
+            assignee="xchen17",
+            reporter="reporter1",
+            priority="Medium",
+            sprint="Sprint 41",
+            updated_at="2026-06-10T08:30:00+00:00",
+            created_at="2026-06-01T09:00:00+00:00",
+            raw_json='{"key":"OPS-100","version":"old"}',
+            last_seen_at="2026-06-10T08:30:00+00:00",
+        )
+        profile = JiraSyncProfile.objects.create(
+            name="Project OPS",
+            profile_type=JiraSyncProfile.ProfileType.PROJECT,
+            params_json={"project_key": "OPS"},
+            jql="",
+        )
+        other_policy = GlobalSyncPolicy.objects.create(
+            name="Policy OPS",
+            strategy_json={"required_self": True, "scopes": []},
+            strategy_hash="hash-v1",
+            status=GlobalSyncPolicy.Status.READY,
+        )
+        version = GlobalSyncPolicyVersion.objects.create(
+            policy=other_policy,
+            version_no=1,
+            strategy_hash="hash-v1",
+            status=GlobalSyncPolicyVersion.Status.READY,
+            full_sync_required=False,
+        )
+        scope = SyncScope.objects.create(
+            policy_version=version,
+            scope_type=SyncScope.ScopeType.PROJECT,
+            name="OPS",
+            is_required=False,
+            is_enabled=True,
+            schedule_minutes=30,
+            config_json={"project_key": "OPS"},
+            base_jql='project = "OPS" ORDER BY updated DESC',
+            next_run_at=datetime(2026, 6, 12, 8, 30, tzinfo=timezone.utc),
+        )
+        JiraIssueSyncMembership.objects.create(
+            issue=issue,
+            profile=profile,
+            last_seen_at="2026-06-10T08:30:00+00:00",
+        )
+        JiraIssueScopeMembership.objects.create(
+            issue=issue,
+            scope=scope,
+            policy_version=version,
+            first_seen_at=datetime(2026, 6, 10, 8, 30, tzinfo=timezone.utc),
+            last_checked_at=datetime(2026, 6, 10, 8, 30, tzinfo=timezone.utc),
+            last_synced_success_at=datetime(2026, 6, 10, 8, 30, tzinfo=timezone.utc),
+            last_seen_issue_updated_at=datetime(2026, 6, 10, 8, 30, tzinfo=timezone.utc),
+            is_active=True,
+        )
+        self.adapter.fetch_issues.return_value = []
+
+        self.service.full_sync(profile)
+
+        assert JiraIssueSyncMembership.objects.filter(profile=profile, issue=issue).exists() is False
+        assert JiraIssue.objects.filter(issue_key="OPS-100").exists() is True
+        assert JiraIssueScopeMembership.objects.filter(
+            issue=issue,
+            scope=scope,
+            is_active=True,
+        ).exists()
 
     def test_incremental_sync_does_not_remove_absent_memberships(self):
         issue = JiraIssue.objects.create(
