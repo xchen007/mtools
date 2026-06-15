@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -141,6 +142,21 @@ class GlobalSyncPolicy(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def clean(self):
+        super().clean()
+        if (
+            self.current_version_id is not None
+            and self.id is not None
+            and self.current_version.policy_id != self.id
+        ):
+            raise ValidationError(
+                {"current_version": "Current version must belong to the same policy."}
+            )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
 
 class GlobalSyncPolicyVersion(models.Model):
     class Status(models.TextChoices):
@@ -266,6 +282,21 @@ class JiraIssueScopeMembership(models.Model):
                 name="jira_workspace_unique_issue_scope_membership",
             )
         ]
+
+    def clean(self):
+        super().clean()
+        if (
+            self.scope_id is not None
+            and self.policy_version_id is not None
+            and self.scope.policy_version_id != self.policy_version_id
+        ):
+            raise ValidationError(
+                {"policy_version": "Policy version must match the scope policy version."}
+            )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 
 class JiraSavedQuery(models.Model):

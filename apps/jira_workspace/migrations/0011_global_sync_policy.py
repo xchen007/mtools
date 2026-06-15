@@ -4,18 +4,13 @@ import django.db.models.deletion
 
 def backfill_jira_issue_policy_fields(apps, schema_editor):
     JiraIssue = apps.get_model("jira_workspace", "JiraIssue")
-
-    for issue in JiraIssue.objects.all().iterator():
-        issue.last_checked_at = issue.last_checked_at or issue.last_seen_at
-        issue.last_synced_success_at = issue.last_synced_success_at or issue.last_seen_at
-        issue.is_active_in_current_policy = True
-        issue.save(
-            update_fields=[
-                "last_checked_at",
-                "last_synced_success_at",
-                "is_active_in_current_policy",
-            ]
-        )
+    JiraIssue.objects.filter(last_checked_at__isnull=True).update(
+        last_checked_at=models.F("last_seen_at")
+    )
+    JiraIssue.objects.filter(last_synced_success_at__isnull=True).update(
+        last_synced_success_at=models.F("last_seen_at")
+    )
+    JiraIssue.objects.update(is_active_in_current_policy=True)
 
 
 class Migration(migrations.Migration):
