@@ -717,16 +717,36 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
 
         assert response.status_code == 200
         content = response.content.decode()
+        app_nav = content.split('<aside class="app-nav app-nav--commercial"', 1)[1].split("</aside>", 1)[0]
         assert 'aria-label="Tool Switcher"' in content
         assert "Workspace" in content.split('aria-label="Tool Switcher"', 1)[1].split("</nav>", 1)[0]
         assert "Jira" in content.split('aria-label="Tool Switcher"', 1)[1].split("</nav>", 1)[0]
         assert "sync2pod" in content.split('aria-label="Tool Switcher"', 1)[1].split("</nav>", 1)[0]
         assert "Integrations" in content.split('aria-label="Tool Switcher"', 1)[1].split("</nav>", 1)[0]
+        assert "Logs" in content.split('aria-label="Tool Switcher"', 1)[1].split("</nav>", 1)[0]
         assert 'aria-label="Tools"' not in content
-        assert "Current Tool" not in content
+        assert 'aria-label="Current Tool"' not in app_nav
         assert "Query Cards" in content
         assert "Starred" in content
         assert "Jira Issues" in content.split("Starred", 1)[1]
+
+    def test_query_page_renders_jira_secondary_nav_with_active_query_link(self):
+        response = self.client.get(reverse("jira_workspace:query"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        current_tool_nav = content.split('aria-label="Current Tool"', 1)[1].split(
+            "</nav>", 1
+        )[0]
+
+        assert "Dashboard" in current_tool_nav
+        assert "Query" in current_tool_nav
+        assert "Sync" in current_tool_nav
+        assert "Profiles" in current_tool_nav
+        query_link = current_tool_nav.split(
+            f'href="{reverse("jira_workspace:query")}"', 1
+        )[1].split("</a>", 1)[0]
+        assert 'aria-current="page"' in query_link
 
     def test_toggle_star_route_adds_and_removes_starred_page_entry(self):
         response = self.client.post(

@@ -187,6 +187,7 @@ class WorkspaceServiceTests(TestCase):
             "Jira",
             "sync2pod",
             "Integrations",
+            "Logs",
         ]
         assert shell["current_tool"]["key"] == "jira"
         assert [item["label"] for item in shell["current_sections"]] == [
