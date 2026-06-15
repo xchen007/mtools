@@ -100,6 +100,69 @@ class JiraWorkspaceSyncServiceTests(TestCase):
         assert policy.status == GlobalSyncPolicy.Status.STALE
         assert version.scopes.filter(last_run_status=SyncScope.RunStatus.QUEUED_FULL).count() == 2
 
+    def test_policy_strategy_always_creates_required_self_scope_when_omitted(self):
+        policy = GlobalSyncPolicy.objects.create(
+            name="Primary Jira Policy",
+            strategy_json={},
+            strategy_hash="old-hash",
+            status=GlobalSyncPolicy.Status.READY,
+        )
+
+        version = self.service.apply_policy_strategy(
+            policy=policy,
+            strategy_json={"scopes": []},
+        )
+
+        assert version.scopes.filter(
+            scope_type=SyncScope.ScopeType.SELF_REQUIRED,
+            is_required=True,
+            is_system_scope=True,
+        ).exists()
+
+    def test_policy_strategy_always_creates_required_self_scope_when_false(self):
+        policy = GlobalSyncPolicy.objects.create(
+            name="Primary Jira Policy",
+            strategy_json={},
+            strategy_hash="old-hash",
+            status=GlobalSyncPolicy.Status.READY,
+        )
+
+        version = self.service.apply_policy_strategy(
+            policy=policy,
+            strategy_json={"required_self": False, "scopes": []},
+        )
+
+        assert version.scopes.filter(
+            scope_type=SyncScope.ScopeType.SELF_REQUIRED,
+            is_required=True,
+            is_system_scope=True,
+        ).exists()
+
+    def test_unchanged_policy_strategy_returns_current_version_without_creating_new_version(self):
+        policy = GlobalSyncPolicy.objects.create(
+            name="Primary Jira Policy",
+            strategy_json={"required_self": True, "scopes": []},
+            strategy_hash=SyncService._strategy_hash({"required_self": True, "scopes": []}),
+            status=GlobalSyncPolicy.Status.READY,
+        )
+        version = GlobalSyncPolicyVersion.objects.create(
+            policy=policy,
+            version_no=1,
+            strategy_hash=policy.strategy_hash,
+            status=GlobalSyncPolicyVersion.Status.READY,
+            full_sync_required=False,
+        )
+        policy.current_version = version
+        policy.save(update_fields=["current_version", "updated_at"])
+
+        returned_version = self.service.apply_policy_strategy(
+            policy=policy,
+            strategy_json={"required_self": True, "scopes": []},
+        )
+
+        assert returned_version == version
+        assert GlobalSyncPolicyVersion.objects.filter(policy=policy).count() == 1
+
     def test_incremental_scope_sync_uses_cursor_overlap_and_updates_success_time_for_unchanged_issue(self):
         policy, version, scope = build_ready_self_scope()
         issue = JiraIssue.objects.create(
@@ -141,9 +204,126 @@ class JiraWorkspaceSyncServiceTests(TestCase):
 
         issue.refresh_from_db()
         scope.refresh_from_db()
-        assert "updated >=" in scope.effective_jql_last_run
+        assert (
+            scope.effective_jql_last_run
+            == '(assignee = currentUser() OR reporter = currentUser()) AND updated >= "2026-06-15T01:00:00+00:00" ORDER BY updated ASC, key ASC'
+        )
         assert result.unchanged_checked_count == 1
         assert issue.last_synced_success_at > datetime.fromisoformat("2026-06-15T01:00:00+00:00")
+
+    def test_incremental_scope_sync_rejects_scope_without_prior_full_sync(self):
+        _, _, scope = build_ready_self_scope()
+        scope.last_full_sync_at = None
+        scope.save(update_fields=["last_full_sync_at", "updated_at"])
+
+        with self.assertRaisesMessage(
+            ValueError,
+            "Incremental scope sync requires a prior full sync.",
+        ):
+            self.service.run_scope_incremental(scope)
+
+    def test_full_scope_sync_marks_issue_inactive_when_last_policy_membership_deactivates(self):
+        _, version, scope = build_ready_self_scope()
+        issue = JiraIssue.objects.create(
+            issue_key="OPS-778",
+            project_key="OPS",
+            summary="Summary",
+            status="To Do",
+            assignee="xchen17",
+            reporter="reporter1",
+            priority="High",
+            updated_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            created_at=datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc),
+            sprint="Sprint 42",
+            raw_json='{"key":"OPS-778"}',
+            last_seen_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_checked_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_synced_success_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            is_active_in_current_policy=True,
+            first_seen_policy_version_id=version.id,
+            last_seen_policy_version_id=version.id,
+        )
+        membership = JiraIssueScopeMembership.objects.create(
+            issue=issue,
+            scope=scope,
+            policy_version=version,
+            first_seen_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_checked_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_synced_success_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_seen_issue_updated_at=issue.updated_at,
+            is_active=True,
+        )
+        self.adapter.fetch_issues.return_value = []
+
+        result = self.service.run_scope_full(scope)
+
+        issue.refresh_from_db()
+        membership.refresh_from_db()
+        assert result.deactivated_membership_count == 1
+        assert membership.is_active is False
+        assert issue.is_active_in_current_policy is False
+
+    def test_full_scope_sync_keeps_issue_active_when_another_policy_membership_remains(self):
+        _, version, scope = build_ready_self_scope()
+        other_scope = SyncScope.objects.create(
+            policy_version=version,
+            scope_type=SyncScope.ScopeType.PROJECT,
+            name="OPS",
+            is_required=False,
+            is_enabled=True,
+            schedule_minutes=30,
+            config_json={"project_key": "OPS"},
+            base_jql='project = "OPS"',
+            next_run_at=datetime(2026, 6, 15, 1, 30, tzinfo=timezone.utc),
+        )
+        issue = JiraIssue.objects.create(
+            issue_key="OPS-778",
+            project_key="OPS",
+            summary="Summary",
+            status="To Do",
+            assignee="xchen17",
+            reporter="reporter1",
+            priority="High",
+            updated_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            created_at=datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc),
+            sprint="Sprint 42",
+            raw_json='{"key":"OPS-778"}',
+            last_seen_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_checked_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_synced_success_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            is_active_in_current_policy=True,
+            first_seen_policy_version_id=version.id,
+            last_seen_policy_version_id=version.id,
+        )
+        membership = JiraIssueScopeMembership.objects.create(
+            issue=issue,
+            scope=scope,
+            policy_version=version,
+            first_seen_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_checked_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_synced_success_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_seen_issue_updated_at=issue.updated_at,
+            is_active=True,
+        )
+        JiraIssueScopeMembership.objects.create(
+            issue=issue,
+            scope=other_scope,
+            policy_version=version,
+            first_seen_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_checked_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_synced_success_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_seen_issue_updated_at=issue.updated_at,
+            is_active=True,
+        )
+        self.adapter.fetch_issues.return_value = []
+
+        result = self.service.run_scope_full(scope)
+
+        issue.refresh_from_db()
+        membership.refresh_from_db()
+        assert result.deactivated_membership_count == 1
+        assert membership.is_active is False
+        assert issue.is_active_in_current_policy is True
 
     def test_incremental_sync_inserts_a_new_issue(self):
         profile = JiraSyncProfile.objects.create(

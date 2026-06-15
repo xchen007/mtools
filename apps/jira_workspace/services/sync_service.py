@@ -441,6 +441,15 @@ class SyncService:
         for membership in stale_memberships:
             membership.is_active = False
             membership.save(update_fields=["is_active", "updated_at"])
+            has_active_policy_membership = membership.issue.sync_memberships.filter(
+                policy_version=scope.policy_version,
+                is_active=True,
+            ).exists()
+            if membership.issue.is_active_in_current_policy != has_active_policy_membership:
+                membership.issue.is_active_in_current_policy = has_active_policy_membership
+                membership.issue.save(
+                    update_fields=["is_active_in_current_policy"]
+                )
             deactivated_count += 1
         return deactivated_count
 
@@ -513,20 +522,19 @@ class SyncService:
     @classmethod
     def _create_scopes_for_version(cls, *, version, strategy_json):
         next_run_at = timezone.now()
-        if strategy_json.get("required_self"):
-            SyncScope.objects.create(
-                policy_version=version,
-                scope_type=SyncScope.ScopeType.SELF_REQUIRED,
-                name="My Assigned or Reported Issues",
-                is_required=True,
-                is_enabled=True,
-                is_system_scope=True,
-                schedule_minutes=30,
-                config_json={"mode": "self"},
-                base_jql="assignee = currentUser() OR reporter = currentUser()",
-                last_run_status=SyncScope.RunStatus.QUEUED_FULL,
-                next_run_at=next_run_at,
-            )
+        SyncScope.objects.create(
+            policy_version=version,
+            scope_type=SyncScope.ScopeType.SELF_REQUIRED,
+            name="My Assigned or Reported Issues",
+            is_required=True,
+            is_enabled=True,
+            is_system_scope=True,
+            schedule_minutes=30,
+            config_json={"mode": "self"},
+            base_jql="assignee = currentUser() OR reporter = currentUser()",
+            last_run_status=SyncScope.RunStatus.QUEUED_FULL,
+            next_run_at=next_run_at,
+        )
 
         for scope_config in strategy_json.get("scopes", []):
             SyncScope.objects.create(
