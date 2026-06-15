@@ -1,6 +1,11 @@
 from django.db.models import Count, Q
 
-from jira_workspace.models import GlobalSyncPolicy, JiraIssue
+from jira_workspace.models import (
+    GlobalSyncPolicy,
+    GlobalSyncPolicyVersion,
+    JiraIssue,
+    JiraIssueScopeMembership,
+)
 
 VALID_SOURCES = ("all", "assigned", "created")
 VALID_SORT_FIELDS = (
@@ -238,6 +243,29 @@ def build_issue_filter_options(*, username):
 
 
 def active_policy_issue_queryset():
+    version = serving_global_sync_policy_version()
+    if version is None:
+        return JiraIssue.objects.none()
+    return JiraIssue.objects.filter(
+        is_active_in_current_policy=True,
+        sync_memberships__policy_version_id=version.id,
+        sync_memberships__is_active=True,
+    ).distinct()
+
+
+def serving_global_sync_policy_version():
+    policy = current_global_sync_policy()
+    if policy is None or policy.current_version_id is None:
+        return None
+    if (
+        policy.current_version.status == GlobalSyncPolicyVersion.Status.READY
+        and not policy.current_version.full_sync_required
+    ):
+        return policy.current_version
+    return None
+
+
+def current_policy_issue_queryset():
     policy = current_global_sync_policy()
     if policy is None or policy.current_version_id is None:
         return JiraIssue.objects.none()

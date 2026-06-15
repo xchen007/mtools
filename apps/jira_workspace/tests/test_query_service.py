@@ -12,6 +12,7 @@ from jira_workspace.models import (
 from jira_workspace.services.query_service import (
     build_issue_filter_options,
     build_issue_queryset,
+    serving_global_sync_policy_version,
 )
 from jira_workspace.services.stats_service import build_dashboard_project_groups
 
@@ -278,6 +279,23 @@ class JiraWorkspaceQueryServiceTests(TestCase):
 
         queryset = build_issue_queryset(username="xchen17", source="assigned")
 
+        assert list(queryset.values_list("issue_key", flat=True)) == []
+
+    def test_build_issue_queryset_returns_empty_while_current_version_rebuilds(self):
+        pending_version = GlobalSyncPolicyVersion.objects.create(
+            policy=self.version.policy,
+            version_no=2,
+            strategy_hash="hash-v2",
+            status=GlobalSyncPolicyVersion.Status.PENDING_FULL_SYNC,
+            full_sync_required=True,
+        )
+        self.version.policy.current_version = pending_version
+        self.version.policy.status = GlobalSyncPolicy.Status.STALE
+        self.version.policy.save(update_fields=["current_version", "status", "updated_at"])
+
+        queryset = build_issue_queryset(username="xchen17", source="assigned")
+
+        assert serving_global_sync_policy_version() is None
         assert list(queryset.values_list("issue_key", flat=True)) == []
 
     def test_build_issue_filter_options_counts_only_current_policy_active_issues(self):

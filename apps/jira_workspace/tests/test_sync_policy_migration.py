@@ -34,9 +34,26 @@ class JiraGlobalSyncPolicyMigrationTests(TransactionTestCase):
         self.executor = MigrationExecutor(connection)
         self.executor.migrate(self.migrate_to)
         new_apps = self.executor.loader.project_state(self.migrate_to).apps
+        GlobalSyncPolicy = new_apps.get_model("jira_workspace", "GlobalSyncPolicy")
         JiraIssue = new_apps.get_model("jira_workspace", "JiraIssue")
+        JiraIssueScopeMembership = new_apps.get_model(
+            "jira_workspace", "JiraIssueScopeMembership"
+        )
         issue = JiraIssue.objects.get(issue_key="OPS-910")
+        policy = GlobalSyncPolicy.objects.get(name="Primary Jira Policy")
 
         assert issue.last_checked_at == seen_at
         assert issue.last_synced_success_at == seen_at
         assert issue.is_active_in_current_policy is True
+        assert policy.status == "ready"
+        assert policy.current_version.status == "ready"
+        assert policy.current_version.scopes.filter(
+            scope_type="self_required",
+            is_required=True,
+            is_system_scope=True,
+        ).exists()
+        assert JiraIssueScopeMembership.objects.filter(
+            issue=issue,
+            policy_version=policy.current_version,
+            is_active=True,
+        ).exists()

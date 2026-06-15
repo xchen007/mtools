@@ -7,14 +7,14 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Jira Sync</h1>
-      <p class="page-subtitle">Sync profiles, recent runs, and external Jira blocker visibility.</p>
+      <p class="page-subtitle">Global policy scopes, recent runs, and external Jira blocker visibility.</p>
     </div>
     {% include "jira_workspace/partials/star_button.html" with star=page_star %}
   </div>
 
   <div class="sync-command-center">
     {% if global_policy %}
-    <section class="panel">
+    <section class="panel sync-card sync-card--policy">
       <div class="panel__header">
         <h2 class="section-title">Global Sync Policy</h2>
         <span class="status-pill status-pill--{% if global_policy.status == 'ready' %}success{% elif global_policy.status == 'rebuilding' %}neutral{% else %}failed{% endif %}">{{ global_policy.get_status_display }}</span>
@@ -36,103 +36,14 @@
           <input type="hidden" name="policy_id" value="{{ global_policy.id }}">
           <button type="submit">Force Rebuild</button>
         </form>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="run_due_scopes">
+          <button type="submit">Run Due Scopes</button>
+        </form>
       </div>
-      {% if policy_scopes %}
-        <div class="sync-scope-cards">
-          <h3 class="section-subtitle">Required Scopes</h3>
-          {% for scope in policy_scopes %}
-            {% if scope.is_required %}
-            <article class="profile-card">
-              <div class="profile-card__header">
-                <h4 class="profile-card__title">{{ scope.name }}</h4>
-                <span class="status-pill status-pill--{% if scope.last_run_status == 'success' %}success{% elif scope.last_run_status == 'failed' %}failed{% else %}neutral{% endif %}">{{ scope.last_run_status|default:"pending" }}</span>
-              </div>
-              <div class="toolbar toolbar--actions">
-                <form method="post">
-                  {% csrf_token %}
-                  <input type="hidden" name="action" value="run_scope_incremental">
-                  <input type="hidden" name="scope_id" value="{{ scope.id }}">
-                  <button type="submit">Run Incremental</button>
-                </form>
-              </div>
-            </article>
-            {% endif %}
-          {% endfor %}
-          <h3 class="section-subtitle">Run Due Scopes</h3>
-          {% for scope in policy_scopes %}
-            {% if not scope.is_required %}
-            <article class="profile-card">
-              <div class="profile-card__header">
-                <h4 class="profile-card__title">{{ scope.name }}</h4>
-                <span class="status-pill status-pill--neutral">{{ scope.last_run_status|default:"pending" }}</span>
-              </div>
-            </article>
-            {% endif %}
-          {% endfor %}
-        </div>
-      {% endif %}
     </section>
     {% endif %}
-
-    <div class="dashboard-grid dashboard-grid--main-first">
-      <section class="panel sync-card sync-card--profile">
-        <div class="panel__header">
-          <h2 class="section-title">Current Profile</h2>
-          <span class="status-pill status-pill--neutral">{{ profiles|length }} profiles</span>
-        </div>
-        {% if selected_profile %}
-          <article class="profile-card">
-            <div class="profile-card__header">
-              <h3 class="profile-card__title">
-                <a href="?profile={{ selected_profile.id }}">{{ selected_profile.name }}</a>
-              </h3>
-              <div class="query-card__flags">
-                {% if selected_profile.is_default %}
-                  <span class="status-pill status-pill--neutral">Default</span>
-                {% endif %}
-                {% include "jira_workspace/partials/star_button.html" with star=selected_profile.star %}
-              </div>
-            </div>
-            <dl class="meta-grid">
-              <div>
-                <dt>Type</dt>
-                <dd>{{ selected_profile.get_profile_type_display|default:selected_profile.profile_type }}</dd>
-              </div>
-              <div>
-                <dt>Last Cursor</dt>
-                <dd class="meta-grid__code">{{ selected_profile.last_cursor|default:"-" }}</dd>
-              </div>
-            </dl>
-          </article>
-        {% else %}
-          <p class="empty-state">No sync profiles configured yet.</p>
-        {% endif %}
-      </section>
-
-      <aside class="dashboard-sidebar">
-        <section class="panel panel--tight sync-card sync-card--controls">
-          <div class="panel__header">
-            <h2 class="section-title">Sync Controls</h2>
-          </div>
-          <form method="post" class="config-form">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="run_sync">
-            <div class="toolbar">
-              <select name="profile_id" required>
-                {% for profile in profiles %}
-                  <option value="{{ profile.id }}"{% if selected_profile and selected_profile.id == profile.id %} selected{% endif %}>{{ profile.name }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="toolbar toolbar--actions">
-              <button type="submit" name="run_type" value="incremental" {% if not profiles %}disabled{% endif %}>Run Incremental</button>
-              <button type="submit" name="run_type" value="full" {% if not profiles %}disabled{% endif %}>Run Full</button>
-            </div>
-          </form>
-        </section>
-      </aside>
-    </div>
-
     <div class="dashboard-grid dashboard-grid--main-first">
       <section class="panel sync-card sync-card--status">
         <div class="panel__header">
@@ -219,7 +130,8 @@
       </div>
       <div class="toolbar toolbar--actions">
         <button type="button" data-sync-details-toggle="history">Run History</button>
-        <button type="button" data-sync-details-toggle="profile">Profile Editor</button>
+        <button type="button" data-sync-details-toggle="scope-reports">Scope Reports</button>
+        <button type="button" data-sync-details-toggle="policy">Policy Settings</button>
       </div>
 
       <section class="panel panel--tight sync-details__panel" data-sync-details-panel="history" hidden>
@@ -232,49 +144,172 @@
         {% include "jira_workspace/partials/sync_runs.html" with sync_runs=sync_runs %}
       </section>
 
-      <section class="panel panel--tight sync-details__panel" data-sync-details-panel="profile" hidden>
+      <section class="panel panel--tight sync-details__panel" data-sync-details-panel="scope-reports" hidden>
         <div class="panel__header">
-          <h3 class="section-title">Profile Editor</h3>
-          <span class="status-pill status-pill--neutral">{{ selected_profile.name|default:"New Profile" }}</span>
+          <h3 class="section-title">Scope Sync Reports</h3>
+          <span class="status-pill status-pill--neutral">{{ scope_sync_reports|length }} reports</span>
         </div>
-        <form method="post" class="config-form" autocomplete="off">
+        <div class="table-wrap">
+          <table class="ticket-table ticket-table--compact">
+            <thead>
+              <tr>
+                <th scope="col">Scope</th>
+                <th scope="col">Policy Version</th>
+                <th scope="col">Run Type</th>
+                <th scope="col">Status</th>
+                <th scope="col">Fetched</th>
+                <th scope="col">Inserted</th>
+                <th scope="col">Updated</th>
+                <th scope="col">Unchanged</th>
+                <th scope="col">Deactivated</th>
+                <th scope="col">Duration</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for report in scope_sync_reports %}
+                <tr>
+                  <td>{{ report.scope.name }}</td>
+                  <td>v{{ report.policy_version.version_no }}</td>
+                  <td>{{ report.get_run_type_display }}</td>
+                  <td><span class="status-pill status-pill--{{ report.status }}">{{ report.status }}</span></td>
+                  <td>{{ report.fetched_count }}</td>
+                  <td>{{ report.inserted_count }}</td>
+                  <td>{{ report.updated_count }}</td>
+                  <td>{{ report.unchanged_checked_count }}</td>
+                  <td>{{ report.deactivated_membership_count }}</td>
+                  <td>{{ report.duration_ms }}ms</td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td class="empty-state empty-state--cell" colspan="10">No scope sync reports recorded yet.</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel panel--tight sync-details__panel" data-sync-details-panel="policy" hidden>
+        {% if policy_scopes %}
+          <div class="sync-scope-cards">
+            <h3 class="section-subtitle">Required Scopes</h3>
+            {% for scope in policy_scopes %}
+              {% if scope.is_required %}
+              <article class="profile-card">
+                <div class="profile-card__header">
+                  <h4 class="profile-card__title">{{ scope.name }}</h4>
+                  <span class="status-pill status-pill--{% if scope.last_run_status == 'success' %}success{% elif scope.last_run_status == 'failed' %}failed{% else %}neutral{% endif %}">{{ scope.last_run_status|default:"pending" }}</span>
+                </div>
+                <div class="toolbar toolbar--actions">
+                  <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="run_scope_incremental">
+                    <input type="hidden" name="scope_id" value="{{ scope.id }}">
+                    <button type="submit">Run Incremental</button>
+                  </form>
+                  <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="run_scope_full">
+                    <input type="hidden" name="scope_id" value="{{ scope.id }}">
+                    <button type="submit">Run Full</button>
+                  </form>
+                </div>
+              </article>
+              {% endif %}
+            {% endfor %}
+            <h3 class="section-subtitle">Run Due Scopes</h3>
+            {% for scope in policy_scopes %}
+              {% if not scope.is_required %}
+              <article class="profile-card">
+                <div class="profile-card__header">
+                  <h4 class="profile-card__title">{{ scope.name }}</h4>
+                  <span class="status-pill status-pill--neutral">{{ scope.last_run_status|default:"pending" }}</span>
+                </div>
+                <div class="toolbar toolbar--actions">
+                  <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="run_scope_incremental">
+                    <input type="hidden" name="scope_id" value="{{ scope.id }}">
+                    <button type="submit">Run Incremental</button>
+                  </form>
+                  <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="run_scope_full">
+                    <input type="hidden" name="scope_id" value="{{ scope.id }}">
+                    <button type="submit">Run Full</button>
+                  </form>
+                </div>
+              </article>
+              {% endif %}
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <div class="panel__header">
+          <h3 class="section-title">Policy Editor</h3>
+        </div>
+        <form method="post" class="config-form">
           {% csrf_token %}
-          <input type="hidden" name="action" value="save_profile">
-          {% if selected_profile %}
-            <input type="hidden" name="profile_id" value="{{ selected_profile.id }}">
-          {% endif %}
+          <input type="hidden" name="action" value="save_policy">
+          <input type="hidden" name="policy_id" value="{{ global_policy.id }}">
           <div class="form-grid">
             <label>
-              <span>Name</span>
-              <input type="text" name="name" value="{{ profile_form.name.value|default:'' }}" required>
+              <span>Policy Identity</span>
+              <input type="text" value="{{ global_policy.name }}" readonly>
             </label>
+          </div>
+          <div class="toolbar toolbar--actions">
+            <button type="submit">Refresh Policy</button>
+          </div>
+        </form>
+
+        <div class="panel__header">
+          <h3 class="section-title">Add Scope</h3>
+        </div>
+        <form method="post" class="config-form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="add_scope">
+          <input type="hidden" name="policy_id" value="{{ global_policy.id }}">
+          <div class="form-grid">
             <label>
-              <span>Profile Type</span>
-              <select name="profile_type" required>
-                {% for value, label in profile_form.fields.profile_type.choices %}
-                  <option value="{{ value }}"{% if profile_form.profile_type.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+              <span>Scope Type</span>
+              <select name="scope_type" required>
+                {% for value, label in scope_form.fields.scope_type.choices %}
+                  <option value="{{ value }}">{{ label }}</option>
                 {% endfor %}
               </select>
             </label>
             <label>
+              <span>Name</span>
+              <input type="text" name="name" required>
+            </label>
+            <label>
+              <span>Schedule Minutes</span>
+              <input type="number" name="schedule_minutes" min="5" value="30">
+            </label>
+            <label>
               <span>Username</span>
-              <input type="text" name="username" value="{{ profile_form.username.value|default:'' }}" placeholder="xchen17">
+              <input type="text" name="username" placeholder="xchen17">
             </label>
             <label>
               <span>Project Key</span>
-              <input type="text" name="project_key" value="{{ profile_form.project_key.value|default:'' }}" placeholder="OPS">
+              <input type="text" name="project_key" placeholder="OPS">
+            </label>
+            <label>
+              <span>Label</span>
+              <input type="text" name="label" placeholder="customer-impact">
+            </label>
+            <label>
+              <span>Sprint</span>
+              <input type="text" name="sprint" placeholder="Sprint 42">
             </label>
             <label>
               <span>Custom JQL</span>
-              <input type="text" name="custom_jql" value="{{ profile_form.custom_jql.value|default:'' }}" placeholder='project = "OPS" AND status = "Blocked"'>
-            </label>
-            <label class="checkbox-row">
-              <input type="checkbox" name="is_default" {% if profile_form.is_default.value %}checked{% endif %}>
-              <span>Default Profile</span>
+              <input type="text" name="custom_jql" placeholder='project = "OPS" AND status = "Blocked"'>
             </label>
           </div>
           <div class="toolbar toolbar--actions">
-            <button type="submit">Save Profile</button>
+            <button type="submit">Add Scope</button>
           </div>
         </form>
       </section>

@@ -3026,6 +3026,11 @@ body.nav-collapsed .rail-item__icon {
     display: contents;
   }
 
+  .sync-card--policy,
+  .sync-details {
+    grid-column: 1 / -1;
+  }
+
   .sync-card--profile,
   .sync-card--controls,
   .sync-card--status {
@@ -3035,10 +3040,6 @@ body.nav-collapsed .rail-item__icon {
   .sync-card--runs,
   .sync-card--logs {
     grid-column: span 3;
-  }
-
-  .sync-details {
-    grid-column: 1 / -1;
   }
 }
 

@@ -1,9 +1,19 @@
+import hashlib
+import json
+
 from django.db import migrations, models
 import django.db.models.deletion
+from django.utils import timezone
 
 
 def backfill_jira_issue_policy_fields(apps, schema_editor):
+    GlobalSyncPolicy = apps.get_model("jira_workspace", "GlobalSyncPolicy")
+    GlobalSyncPolicyVersion = apps.get_model("jira_workspace", "GlobalSyncPolicyVersion")
     JiraIssue = apps.get_model("jira_workspace", "JiraIssue")
+    JiraIssueScopeMembership = apps.get_model("jira_workspace", "JiraIssueScopeMembership")
+    SyncScope = apps.get_model("jira_workspace", "SyncScope")
+    now = timezone.now()
+
     JiraIssue.objects.filter(last_checked_at__isnull=True).update(
         last_checked_at=models.F("last_seen_at")
     )
@@ -11,6 +21,69 @@ def backfill_jira_issue_policy_fields(apps, schema_editor):
         last_synced_success_at=models.F("last_seen_at")
     )
     JiraIssue.objects.update(is_active_in_current_policy=True)
+    if not JiraIssue.objects.exists():
+        return
+
+    strategy_json = {"required_self": True, "scopes": []}
+    strategy_hash = hashlib.sha256(
+        json.dumps(strategy_json, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+    policy = GlobalSyncPolicy.objects.create(
+        name="Primary Jira Policy",
+        strategy_json=strategy_json,
+        strategy_hash=strategy_hash,
+        status="ready",
+        last_strategy_changed_at=now,
+        last_version_built_at=now,
+    )
+    version = GlobalSyncPolicyVersion.objects.create(
+        policy=policy,
+        version_no=1,
+        strategy_hash=strategy_hash,
+        status="ready",
+        full_sync_required=False,
+        full_sync_started_at=now,
+        full_sync_completed_at=now,
+    )
+    policy.current_version = version
+    policy.save(update_fields=["current_version", "updated_at"])
+    scope = SyncScope.objects.create(
+        policy_version=version,
+        scope_type="self_required",
+        name="My Assigned or Reported Issues",
+        is_required=True,
+        is_enabled=True,
+        is_system_scope=True,
+        schedule_minutes=30,
+        config_json={"mode": "self"},
+        base_jql="assignee = currentUser() OR reporter = currentUser()",
+        last_full_sync_at=now,
+        last_successful_check_at=now,
+        last_run_status="success",
+        next_run_at=now,
+    )
+    JiraIssue.objects.update(
+        first_seen_policy_version=version,
+        last_seen_policy_version=version,
+    )
+
+    memberships = []
+    for issue in JiraIssue.objects.all():
+        checked_at = issue.last_checked_at or issue.last_seen_at or now
+        memberships.append(
+            JiraIssueScopeMembership(
+                issue=issue,
+                scope=scope,
+                policy_version=version,
+                first_seen_at=issue.last_seen_at or now,
+                last_checked_at=checked_at,
+                last_synced_success_at=issue.last_synced_success_at or checked_at,
+                last_seen_issue_updated_at=issue.updated_at,
+                is_active=True,
+            )
+        )
+    JiraIssueScopeMembership.objects.bulk_create(memberships)
 
 
 class Migration(migrations.Migration):

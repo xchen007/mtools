@@ -16,7 +16,6 @@ from jira_workspace.forms import (
     JiraConnectionForm,
     JiraIssueFilterForm,
     JiraSavedQueryForm,
-    JiraSyncProfileForm,
     SyncScopeForm,
     Sync2PodProfileForm,
 )
@@ -40,7 +39,6 @@ from jira_workspace.services.jira_connection_service import JiraConnectionServic
 from jira_workspace.services.operation_log_service import OperationLogService
 from jira_workspace.services.query_card_service import QueryCardService
 from jira_workspace.services.query_service import (
-    PRIMARY_GLOBAL_SYNC_POLICY_NAME,
     active_policy_issue_queryset,
     build_issue_filter_options,
     build_issue_queryset,
@@ -52,7 +50,10 @@ from jira_workspace.services.stats_service import (
     build_dashboard_summary,
 )
 from jira_workspace.services.star_service import StarService
-from jira_workspace.services.sync_service import ActiveFullSyncError, SyncService
+from jira_workspace.services.sync_service import (
+    PRIMARY_GLOBAL_SYNC_POLICY_NAME,
+    SyncService,
+)
 from jira_workspace.services.sync2pod_service import Sync2PodService
 from jira_workspace.services.workspace_service import WorkspaceService
 
@@ -382,10 +383,8 @@ def sync(request):
     connection_service = JiraConnectionService()
     operation_log_service = OperationLogService()
     jira_connection = connection_service.get_active_connection()
-    selected_profile = _resolve_selected_profile(request.GET.get("profile"))
-    profile_form = JiraSyncProfileForm(instance=selected_profile) if selected_profile else JiraSyncProfileForm()
     connection_form = JiraConnectionForm(instance=jira_connection)
-    sync_fallback_url = _sync_url_for_profile(selected_profile)
+    sync_fallback_url = reverse("jira_workspace:sync")
 
     if request.method == "POST":
         action = request.POST.get("action")
@@ -414,43 +413,36 @@ def sync(request):
                     fallback=sync_fallback_url,
                 )
             )
-        elif action == "save_profile":
-            profile_instance = _resolve_selected_profile(request.POST.get("profile_id"))
-            profile_form = JiraSyncProfileForm(request.POST, instance=profile_instance)
-            if profile_form.is_valid():
-                profile = profile_form.save(commit=False)
-                if profile.is_default:
-                    JiraSyncProfile.objects.filter(is_default=True).exclude(pk=profile.pk).update(is_default=False)
-                profile.save()
-                return redirect(f"{reverse('jira_workspace:sync')}?profile={profile.id}")
-        elif action == "run_sync":
-            profile = get_object_or_404(JiraSyncProfile, pk=request.POST.get("profile_id"))
-            run_type = request.POST.get("run_type")
-            try:
-                if run_type not in {JiraSyncRun.RunType.FULL, JiraSyncRun.RunType.INCREMENTAL}:
-                    run_type = JiraSyncRun.RunType.INCREMENTAL
-                sync_service.enqueue_sync(profile, run_type)
-            except ActiveFullSyncError as exc:
-                messages.error(request, str(exc))
-            except Exception:
-                messages.error(request, "Unable to start the Jira sync task right now.")
-            return redirect(f"{reverse('jira_workspace:sync')}?profile={profile.id}")
         elif action == "rebuild_policy":
-            policy = get_object_or_404(GlobalSyncPolicy, pk=request.POST.get("policy_id"))
+            policy = get_object_or_404(
+                GlobalSyncPolicy,
+                pk=request.POST.get("policy_id"),
+                name=PRIMARY_GLOBAL_SYNC_POLICY_NAME,
+            )
             try:
                 sync_service.rebuild_policy_version(policy=policy)
             except Exception:
                 messages.error(request, "Unable to rebuild the sync policy version.")
             return redirect(reverse("jira_workspace:sync"))
         elif action == "run_scope_incremental":
-            scope = get_object_or_404(SyncScope, pk=request.POST.get("scope_id"))
+            policy = sync_service.ensure_global_policy()
+            scope = get_object_or_404(
+                SyncScope,
+                pk=request.POST.get("scope_id"),
+                policy_version_id=policy.current_version_id,
+            )
             try:
                 sync_service.run_scope_incremental(scope)
             except Exception:
                 messages.error(request, "Unable to run incremental scope sync.")
             return redirect(reverse("jira_workspace:sync"))
         elif action == "run_scope_full":
-            scope = get_object_or_404(SyncScope, pk=request.POST.get("scope_id"))
+            policy = sync_service.ensure_global_policy()
+            scope = get_object_or_404(
+                SyncScope,
+                pk=request.POST.get("scope_id"),
+                policy_version_id=policy.current_version_id,
+            )
             try:
                 sync_service.run_scope_full(scope)
             except Exception:
@@ -463,13 +455,18 @@ def sync(request):
                 messages.error(request, "Unable to run due scope syncs.")
             return redirect(reverse("jira_workspace:sync"))
         elif action == "save_policy":
-            policy = get_object_or_404(GlobalSyncPolicy, pk=request.POST.get("policy_id"))
-            policy_form = GlobalSyncPolicyForm(request.POST, instance=policy)
-            if policy_form.is_valid():
-                policy_form.save()
-                return redirect(reverse("jira_workspace:sync"))
+            get_object_or_404(
+                GlobalSyncPolicy,
+                pk=request.POST.get("policy_id"),
+                name=PRIMARY_GLOBAL_SYNC_POLICY_NAME,
+            )
+            return redirect(reverse("jira_workspace:sync"))
         elif action == "add_scope":
-            policy = get_object_or_404(GlobalSyncPolicy, pk=request.POST.get("policy_id"))
+            policy = get_object_or_404(
+                GlobalSyncPolicy,
+                pk=request.POST.get("policy_id"),
+                name=PRIMARY_GLOBAL_SYNC_POLICY_NAME,
+            )
             scope_form = SyncScopeForm(request.POST)
             if scope_form.is_valid():
                 strategy_json = dict(policy.strategy_json or {})
@@ -484,23 +481,6 @@ def sync(request):
                 except Exception:
                     messages.error(request, "Unable to add sync scope.")
 
-    profiles_qs = JiraSyncProfile.objects.order_by("-is_default", "name")
-    if selected_profile is None:
-        selected_profile = profiles_qs.first()
-        if not profile_form.is_bound:
-            profile_form = JiraSyncProfileForm(instance=selected_profile) if selected_profile else JiraSyncProfileForm()
-
-    profiles = list(profiles_qs)
-    for profile in profiles:
-        profile.star = _star_button_context(
-            kind=WorkspaceStar.Kind.JIRA_SYNC_PROFILE,
-            label=profile.name,
-            route=f"{reverse('jira_workspace:sync')}?profile={profile.id}",
-            group_key="jira",
-            object_id=str(profile.id),
-            next_url=request.get_full_path(),
-        )
-
     sync_status = sync_service.build_sync_status()
     has_active_sync = any(
         run.status in {JiraSyncRun.Status.QUEUED, JiraSyncRun.Status.RUNNING}
@@ -511,49 +491,36 @@ def sync(request):
         and run.status in {JiraSyncRun.Status.QUEUED, JiraSyncRun.Status.RUNNING}
         for run in sync_status["recent_runs"]
     )
-    global_policy = (
-        GlobalSyncPolicy.objects.select_related("current_version")
-        .order_by("-updated_at", "-id")
-        .first()
-    )
+    global_policy = sync_service.ensure_global_policy()
     policy_scopes = []
+    scope_sync_reports = JiraScopeSyncReport.objects.none()
     if global_policy and global_policy.current_version_id:
         policy_scopes = list(
             SyncScope.objects.filter(policy_version_id=global_policy.current_version_id)
             .order_by("-is_required", "name")
         )
+        scope_sync_reports = (
+            JiraScopeSyncReport.objects.select_related("scope", "policy_version")
+            .filter(policy_version_id=global_policy.current_version_id)
+            .order_by("-started_at", "-id")[:20]
+        )
     context = {
-        "profiles": profiles,
         "sync_runs": sync_status["recent_runs"],
         "has_active_sync": has_active_sync,
         "has_active_full_sync": has_active_full_sync,
         "latest_failed_run": sync_status["latest_failure"],
         "jira_blocker_message": sync_status["blocker_message"],
         "has_external_blocker": sync_status["has_external_blocker"],
-        "profile_form": profile_form,
         "connection_form": connection_form,
         "jira_connection": jira_connection,
-        "selected_profile": selected_profile,
-        "starred_profile_ids": set(
-            WorkspaceStar.objects.filter(
-                kind=WorkspaceStar.Kind.JIRA_SYNC_PROFILE
-            ).values_list("object_id", flat=True)
-        ),
         "recent_operation_logs": operation_log_service.recent_logs(
-            tool=OperationLog.Tool.JIRA_SYNC,
-            target_type="jira_sync_profile",
-            target_id=str(selected_profile.id) if selected_profile else "",
-        ) if selected_profile else operation_log_service.recent_logs(
             tool=OperationLog.Tool.JIRA_SYNC,
         ),
         "global_policy": global_policy,
         "policy_scopes": policy_scopes,
         "policy_form": GlobalSyncPolicyForm(instance=global_policy) if global_policy else GlobalSyncPolicyForm(),
         "scope_form": SyncScopeForm(),
-        "scope_sync_reports": JiraScopeSyncReport.objects.select_related(
-            "scope",
-            "policy_version",
-        ).order_by("-started_at", "-id")[:20],
+        "scope_sync_reports": scope_sync_reports,
     }
     context.update(
         _base_shell_context(
@@ -573,7 +540,6 @@ def sync(request):
         next_url=request.get_full_path(),
     )
     return render(request, "jira_workspace/sync.html", context)
-
 
 def query(request):
     username = _resolve_username()

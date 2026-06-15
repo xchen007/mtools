@@ -23,6 +23,8 @@ from jira_workspace.models import (
 from jira_workspace.services.jira_adapter import JiraAdapter
 from jira_workspace.services.operation_log_service import OperationLogService
 
+PRIMARY_GLOBAL_SYNC_POLICY_NAME = "Primary Jira Policy"
+
 
 @dataclass
 class SyncResult:
@@ -43,6 +45,24 @@ class SyncService:
 
     def __init__(self, *, jira_adapter=None):
         self.jira = jira_adapter
+
+    @transaction.atomic
+    def ensure_global_policy(self):
+        policy = GlobalSyncPolicy.objects.filter(
+            name=PRIMARY_GLOBAL_SYNC_POLICY_NAME
+        ).first()
+        if policy is not None:
+            return policy
+
+        policy = GlobalSyncPolicy.objects.create(
+            name=PRIMARY_GLOBAL_SYNC_POLICY_NAME,
+            strategy_json={},
+            strategy_hash="bootstrap",
+            status=GlobalSyncPolicy.Status.STALE,
+        )
+        self.apply_policy_strategy(policy=policy, strategy_json={"required_self": True, "scopes": []})
+        policy.refresh_from_db()
+        return policy
 
     @transaction.atomic
     def apply_policy_strategy(self, *, policy, strategy_json):
@@ -66,6 +86,7 @@ class SyncService:
             full_sync_required=True,
         )
         self._create_scopes_for_version(version=version, strategy_json=normalized_strategy)
+        self._disable_other_policy_scopes(policy=policy, active_version=version)
 
         policy.strategy_json = normalized_strategy
         policy.strategy_hash = strategy_hash
@@ -101,6 +122,7 @@ class SyncService:
             full_sync_required=True,
         )
         self._create_scopes_for_version(version=version, strategy_json=policy.strategy_json)
+        self._disable_other_policy_scopes(policy=policy, active_version=version)
         policy.current_version = version
         policy.status = GlobalSyncPolicy.Status.STALE
         policy.save(update_fields=["current_version", "status", "updated_at"])
@@ -116,9 +138,28 @@ class SyncService:
 
     def run_due_scopes(self, *, now=None):
         now = now or timezone.now()
+        policy = (
+            GlobalSyncPolicy.objects.select_related("current_version")
+            .filter(name=PRIMARY_GLOBAL_SYNC_POLICY_NAME, current_version__isnull=False)
+            .first()
+        )
+        if policy is None:
+            policy = (
+                GlobalSyncPolicy.objects.select_related("current_version")
+                .filter(current_version__isnull=False)
+                .order_by("id")
+                .first()
+            )
+        if policy is None:
+            return []
+
         scopes = list(
             SyncScope.objects.select_related("policy_version")
-            .filter(is_enabled=True, next_run_at__lte=now)
+            .filter(
+                policy_version_id=policy.current_version_id,
+                is_enabled=True,
+                next_run_at__lte=now,
+            )
             .filter(
                 last_run_status__in=[
                     SyncScope.RunStatus.QUEUED_FULL,
@@ -536,6 +577,8 @@ class SyncService:
                     "duration_ms",
                 ]
             )
+            if run_type == JiraSyncRun.RunType.FULL:
+                self._refresh_policy_build_status(scope.policy_version)
             return result
         except Exception as exc:
             scope.last_run_status = SyncScope.RunStatus.FAILED
@@ -558,6 +601,7 @@ class SyncService:
                     "duration_ms",
                 ]
             )
+            self._mark_policy_build_failed(scope.policy_version)
             raise
 
     @transaction.atomic
@@ -600,6 +644,7 @@ class SyncService:
             result.deactivated_membership_count = self._deactivate_missing_scope_memberships(
                 scope=scope,
                 seen_issue_keys=seen_issue_keys,
+                synced_at=synced_at,
             )
 
         if max_updated is not None:
@@ -676,27 +721,80 @@ class SyncService:
         membership.save()
 
     @staticmethod
-    def _deactivate_missing_scope_memberships(*, scope, seen_issue_keys):
+    def _deactivate_missing_scope_memberships(*, scope, seen_issue_keys, synced_at):
         stale_memberships = JiraIssueScopeMembership.objects.filter(
             scope=scope,
             policy_version=scope.policy_version,
             is_active=True,
-        ).exclude(issue_id__in=seen_issue_keys)
-        deactivated_count = 0
-        for membership in stale_memberships:
-            membership.is_active = False
-            membership.save(update_fields=["is_active", "updated_at"])
-            has_active_policy_membership = membership.issue.sync_memberships.filter(
+        ).exclude(issue__issue_key__in=seen_issue_keys)
+        affected_issue_keys = list(stale_memberships.values_list("issue_id", flat=True))
+        if not affected_issue_keys:
+            return 0
+
+        deactivated_count = stale_memberships.update(
+            is_active=False,
+            last_checked_at=synced_at,
+            last_synced_success_at=synced_at,
+        )
+        active_issue_keys = set(
+            JiraIssueScopeMembership.objects.filter(
                 policy_version=scope.policy_version,
+                issue_id__in=affected_issue_keys,
                 is_active=True,
-            ).exists()
-            if membership.issue.is_active_in_current_policy != has_active_policy_membership:
-                membership.issue.is_active_in_current_policy = has_active_policy_membership
-                membership.issue.save(
-                    update_fields=["is_active_in_current_policy"]
-                )
-            deactivated_count += 1
+            ).values_list("issue_id", flat=True)
+        )
+        inactive_issue_keys = set(affected_issue_keys) - active_issue_keys
+        if inactive_issue_keys:
+            JiraIssue.objects.filter(issue_key__in=inactive_issue_keys).update(
+                is_active_in_current_policy=False
+            )
         return deactivated_count
+
+    @staticmethod
+    def _disable_other_policy_scopes(*, policy, active_version):
+        SyncScope.objects.filter(policy_version__policy=policy).exclude(
+            policy_version=active_version
+        ).update(is_enabled=False)
+
+    @staticmethod
+    def _refresh_policy_build_status(version):
+        enabled_scopes = version.scopes.filter(is_enabled=True)
+        if not enabled_scopes.exists():
+            return
+        if enabled_scopes.exclude(
+            last_run_status=SyncScope.RunStatus.SUCCESS,
+            last_full_sync_at__isnull=False,
+        ).exists():
+            return
+
+        completed_at = timezone.now()
+        version.status = GlobalSyncPolicyVersion.Status.READY
+        version.full_sync_required = False
+        version.full_sync_completed_at = completed_at
+        version.save(
+            update_fields=[
+                "status",
+                "full_sync_required",
+                "full_sync_completed_at",
+            ]
+        )
+
+        policy = version.policy
+        if policy.current_version_id == version.id:
+            policy.status = GlobalSyncPolicy.Status.READY
+            policy.last_version_built_at = completed_at
+            policy.save(update_fields=["status", "last_version_built_at", "updated_at"])
+
+    @staticmethod
+    def _mark_policy_build_failed(version):
+        if version.status != GlobalSyncPolicyVersion.Status.PENDING_FULL_SYNC:
+            return
+        version.status = GlobalSyncPolicyVersion.Status.PARTIAL_FAILED
+        version.save(update_fields=["status"])
+        policy = version.policy
+        if policy.current_version_id == version.id:
+            policy.status = GlobalSyncPolicy.Status.PARTIAL
+            policy.save(update_fields=["status", "updated_at"])
 
     def _build_scope_jql(self, *, scope, run_type):
         base, _order_by = self._split_order_by(scope.base_jql)

@@ -28,36 +28,38 @@ from jira_workspace.models import (
     Sync2PodWatchEvent,
     WorkspaceStar,
 )
-from jira_workspace.services.sync_service import ActiveFullSyncError
-
-
 def create_current_policy_scope():
-    policy = GlobalSyncPolicy.objects.create(
+    policy, _ = GlobalSyncPolicy.objects.get_or_create(
         name="Primary Jira Policy",
-        strategy_json={"required_self": True, "scopes": []},
-        strategy_hash="hash-v1",
-        status=GlobalSyncPolicy.Status.READY,
+        defaults={
+            "strategy_json": {"required_self": True, "scopes": []},
+            "strategy_hash": "hash-v1",
+            "status": GlobalSyncPolicy.Status.READY,
+        },
     )
-    version = GlobalSyncPolicyVersion.objects.create(
+    version = policy.current_version or GlobalSyncPolicyVersion.objects.create(
         policy=policy,
         version_no=1,
         strategy_hash="hash-v1",
         status=GlobalSyncPolicyVersion.Status.READY,
         full_sync_required=False,
     )
-    policy.current_version = version
-    policy.save(update_fields=["current_version", "updated_at"])
-    scope = SyncScope.objects.create(
+    if policy.current_version_id != version.id:
+        policy.current_version = version
+        policy.save(update_fields=["current_version", "updated_at"])
+    scope, _ = SyncScope.objects.get_or_create(
         policy_version=version,
         scope_type=SyncScope.ScopeType.SELF_REQUIRED,
         name="My Assigned or Reported Issues",
-        is_required=True,
-        is_enabled=True,
-        is_system_scope=True,
-        schedule_minutes=30,
-        config_json={"mode": "self"},
-        base_jql="assignee = currentUser() OR reporter = currentUser()",
-        next_run_at=datetime.now(timezone.utc),
+        defaults={
+            "is_required": True,
+            "is_enabled": True,
+            "is_system_scope": True,
+            "schedule_minutes": 30,
+            "config_json": {"mode": "self"},
+            "base_jql": "assignee = currentUser() OR reporter = currentUser()",
+            "next_run_at": datetime.now(timezone.utc),
+        },
     )
     return version, scope
 
@@ -1132,13 +1134,13 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
 
         assert response.status_code == 200
         content = response.content.decode()
-        assert "Current Profile" in content
+        assert "Global Sync Policy" in content
         assert "Latest Status" in content
         assert "Recent Runs Summary" in content
         assert "Recent Logs Summary" in content
         assert "Details" in content
         assert "Run History" in content
-        assert "Profile Editor" in content
+        assert "Policy Editor" in content
         assert "Sync Run Timeline" not in content
         assert "Run Configuration Presets" not in content
 
@@ -1147,8 +1149,10 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
 
         assert response.status_code == 200
         content = response.content.decode()
-        assert 'class="panel sync-card sync-card--profile"' in content
-        assert 'class="panel panel--tight sync-card sync-card--controls"' in content
+        assert 'class="panel sync-card sync-card--policy"' in content
+        assert "Current Profile" not in content
+        assert "Sync Controls" not in content
+        assert 'name="action" value="run_sync"' not in content
         assert 'class="panel sync-card sync-card--status"' in content
         assert 'class="panel panel--tight sync-card sync-card--runs"' in content
         assert 'class="panel panel--tight sync-card sync-card--logs"' in content
@@ -1184,6 +1188,22 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert policy.status == GlobalSyncPolicy.Status.STALE
         assert policy.versions.count() == before_version_count + 1
 
+    def test_sync_post_rejects_secondary_policy_rebuild(self):
+        secondary_policy = GlobalSyncPolicy.objects.create(
+            name="Secondary Jira Policy",
+            strategy_json={"required_self": True, "scopes": []},
+            strategy_hash="hash-secondary",
+            status=GlobalSyncPolicy.Status.READY,
+        )
+
+        response = self.client.post(
+            reverse("jira_workspace:sync"),
+            {"action": "rebuild_policy", "policy_id": str(secondary_policy.id)},
+        )
+
+        assert response.status_code == 404
+        assert secondary_policy.versions.count() == 0
+
     @patch("jira_workspace.views.SyncService.run_scope_incremental")
     def test_sync_post_can_run_scope_incremental(self, run_scope_incremental):
         scope = self.sync_scope
@@ -1209,6 +1229,34 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert response.status_code == 302
         run_scope_full.assert_called_once()
         assert run_scope_full.call_args.args[0] == scope
+
+    @patch("jira_workspace.views.SyncService.run_scope_full")
+    def test_sync_post_rejects_stale_policy_version_scope(self, run_scope_full):
+        stale_version = GlobalSyncPolicyVersion.objects.create(
+            policy=self.policy_version.policy,
+            version_no=2,
+            strategy_hash="hash-stale",
+            status=GlobalSyncPolicyVersion.Status.STALE,
+            full_sync_required=True,
+        )
+        stale_scope = SyncScope.objects.create(
+            policy_version=stale_version,
+            scope_type=SyncScope.ScopeType.PROJECT,
+            name="Stale OPS",
+            is_enabled=True,
+            schedule_minutes=30,
+            config_json={"project_key": "OPS"},
+            base_jql='project = "OPS"',
+            next_run_at=datetime.now(timezone.utc),
+        )
+
+        response = self.client.post(
+            reverse("jira_workspace:sync"),
+            {"action": "run_scope_full", "scope_id": str(stale_scope.id)},
+        )
+
+        assert response.status_code == 404
+        run_scope_full.assert_not_called()
 
     @patch("jira_workspace.views.SyncService.run_due_scopes")
     def test_sync_post_can_run_due_scopes(self, run_due_scopes):
@@ -1236,6 +1284,39 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
             deactivated_membership_count=2,
             duration_ms=123,
         )
+        stale_policy = GlobalSyncPolicy.objects.create(
+            name="Stale Report Policy",
+            strategy_json={"required_self": True, "scopes": []},
+            strategy_hash="stale-report",
+            status=GlobalSyncPolicy.Status.STALE,
+        )
+        stale_version = GlobalSyncPolicyVersion.objects.create(
+            policy=stale_policy,
+            version_no=1,
+            strategy_hash="stale-report",
+            status=GlobalSyncPolicyVersion.Status.STALE,
+            full_sync_required=True,
+        )
+        stale_scope = SyncScope.objects.create(
+            policy_version=stale_version,
+            scope_type=SyncScope.ScopeType.PROJECT,
+            name="Stale OPS",
+            is_enabled=True,
+            schedule_minutes=30,
+            config_json={"project_key": "OPS"},
+            base_jql='project = "OPS"',
+            next_run_at=datetime.now(timezone.utc),
+        )
+        JiraScopeSyncReport.objects.create(
+            policy_version=stale_version,
+            scope=stale_scope,
+            run_type=JiraScopeSyncReport.RunType.FULL,
+            status=JiraScopeSyncReport.Status.SUCCESS,
+            started_at=datetime.now(timezone.utc),
+            finished_at=datetime.now(timezone.utc),
+            effective_jql=stale_scope.base_jql,
+            fetched_count=99,
+        )
 
         response = self.client.get(reverse("jira_workspace:sync"))
 
@@ -1243,8 +1324,11 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         content = response.content.decode()
         assert "Scope Sync Reports" in content
         assert "My Assigned or Reported Issues" in content
+        assert "Policy Version" in content
+        assert "v1" in content
         assert "Deactivated" in content
         assert "123ms" in content
+        assert "Stale OPS" not in content
 
     def test_sync_page_renders_policy_editor_and_scope_form(self):
         response = self.client.get(reverse("jira_workspace:sync"))
@@ -1256,8 +1340,56 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert 'name="action" value="add_scope"' in content
         assert 'name="scope_type"' in content
         assert "Add Scope" in content
+        assert 'data-sync-details-toggle="profile"' not in content
+        assert 'data-sync-details-panel="profile"' not in content
+        assert 'name="action" value="save_profile"' not in content
+        policy_summary = content.split("Global Sync Policy", 1)[1].split("Latest Status", 1)[0]
+        policy_details = content.split('data-sync-details-panel="policy"', 1)[1].split("</section>", 1)[0]
+        policy_panel_open_tag = content.split('data-sync-details-panel="policy"', 1)[1].split(">", 1)[0]
+        assert "Policy Editor" not in policy_summary
+        assert "Add Scope" not in policy_summary
+        assert "Required Scopes" not in policy_summary
+        assert "Policy Editor" in policy_details
+        assert "Add Scope" in policy_details
+        assert "Required Scopes" in policy_details
+        assert "hidden" in policy_panel_open_tag
 
-    def test_sync_post_can_save_global_policy(self):
+    def test_sync_page_initializes_primary_policy_when_cache_is_empty(self):
+        GlobalSyncPolicy.objects.all().delete()
+
+        response = self.client.get(reverse("jira_workspace:sync"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Global Sync Policy" in content
+        assert "Policy Editor" in content
+        assert GlobalSyncPolicy.objects.filter(name="Primary Jira Policy").exists()
+
+    def test_sync_page_uses_primary_policy_when_other_policy_is_newer(self):
+        stale_policy = GlobalSyncPolicy.objects.create(
+            name="Recently Updated Secondary Policy",
+            strategy_json={"required_self": True, "scopes": []},
+            strategy_hash="hash-secondary",
+            status=GlobalSyncPolicy.Status.STALE,
+        )
+        stale_version = GlobalSyncPolicyVersion.objects.create(
+            policy=stale_policy,
+            version_no=1,
+            strategy_hash="hash-secondary",
+            status=GlobalSyncPolicyVersion.Status.STALE,
+            full_sync_required=True,
+        )
+        stale_policy.current_version = stale_version
+        stale_policy.save(update_fields=["current_version", "updated_at"])
+
+        response = self.client.get(reverse("jira_workspace:sync"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Primary Jira Policy" in content
+        assert "Recently Updated Secondary Policy" not in content
+
+    def test_sync_post_does_not_rename_primary_policy_identity(self):
         policy = GlobalSyncPolicy.objects.get(name="Primary Jira Policy")
 
         response = self.client.post(
@@ -1271,7 +1403,7 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
 
         assert response.status_code == 302
         policy.refresh_from_db()
-        assert policy.name == "Primary Jira Policy Renamed"
+        assert policy.name == "Primary Jira Policy"
 
     def test_sync_post_can_add_policy_scope_and_create_new_version(self):
         policy = GlobalSyncPolicy.objects.get(name="Primary Jira Policy")
@@ -1328,11 +1460,15 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         content = response.content.decode()
         assert 'data-sync-details-toggle' in content
         assert 'data-sync-details-panel="history"' in content
-        assert 'data-sync-details-panel="profile"' in content
+        detail_panel_tags = re.findall(r"<section[^>]+data-sync-details-panel=\"([^\"]+)\"[^>]*>", content)
+        detail_toggle_targets = set(re.findall(r'data-sync-details-toggle="([^"]+)"', content))
+        assert detail_panel_tags
+        assert set(detail_panel_tags).issubset(detail_toggle_targets)
+        for panel_target in detail_panel_tags:
+            panel_open_tag = content.split(f'data-sync-details-panel="{panel_target}"', 1)[1].split(">", 1)[0]
+            assert "hidden" in panel_open_tag
         history_open_tag = content.split('data-sync-details-panel="history"', 1)[1].split(">", 1)[0]
-        profile_open_tag = content.split('data-sync-details-panel="profile"', 1)[1].split(">", 1)[0]
         assert "hidden" in history_open_tag
-        assert "hidden" in profile_open_tag
 
     def test_sync_page_renders_compact_recent_run_summary_rows(self):
         response = self.client.get(reverse("jira_workspace:sync"))
@@ -1352,19 +1488,19 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert "<th scope=\"col\">Log</th>" in details_region
         assert "Recent Sync Runs" in content
 
-    def test_sync_page_renders_profiles_runs_and_blocker_state(self):
+    def test_sync_page_renders_global_policy_runs_and_blocker_state(self):
         response = self.client.get(reverse("jira_workspace:sync"))
 
         assert response.status_code == 200
         content = response.content.decode()
-        assert "Current Profile" in content
+        assert "Global Sync Policy" in content
         assert "Recent Runs Summary" in content
-        assert "My Issues" in content
+        assert "My Assigned or Reported Issues" in content
         assert "success" in content.lower()
         assert "The request is blocked." in content
         assert "External Jira access is currently blocked" in content
-        assert "Profile Editor" in content
-        assert "Sync Controls" in content
+        assert "Policy Editor" in content
+        assert "Run Due Scopes" in content
         main_content = content.split('<main class="app-main">', 1)[1].split("</main>", 1)[0]
         assert "Jira Connection" not in main_content
         assert "Save connection" not in main_content
@@ -1387,24 +1523,6 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         content = response.content.decode()
         assert "<th scope=\"col\">Log</th>" in content
         assert "JIRA_API_BASE_URL and JIRA_API_TOKEN are required." in content
-
-    def test_sync_page_can_persist_a_profile(self):
-        response = self.client.post(
-            reverse("jira_workspace:sync"),
-            {
-                "action": "save_profile",
-                "name": "OPS Project",
-                "profile_type": JiraSyncProfile.ProfileType.PROJECT,
-                "project_key": "OPS",
-                "is_default": "on",
-            },
-        )
-
-        assert response.status_code == 302
-        profile = JiraSyncProfile.objects.get(name="OPS Project")
-        assert profile.profile_type == JiraSyncProfile.ProfileType.PROJECT
-        assert profile.params_json == {"project_key": "OPS"}
-        assert profile.is_default is True
 
     def test_sync_page_can_save_jira_connection_settings(self):
         response = self.client.post(
@@ -1479,58 +1597,6 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert "Save connection" in drawer
         assert "Test connection" in drawer
 
-    @patch("jira_workspace.views.SyncService.enqueue_sync")
-    def test_sync_page_queues_incremental_sync(self, enqueue_sync):
-        response = self.client.post(
-            reverse("jira_workspace:sync"),
-            {
-                "action": "run_sync",
-                "profile_id": str(self.profile.id),
-                "run_type": JiraSyncRun.RunType.INCREMENTAL,
-            },
-        )
-
-        assert response.status_code == 302
-        enqueue_sync.assert_called_once()
-        assert enqueue_sync.call_args.args[0] == self.profile
-        assert enqueue_sync.call_args.args[1] == JiraSyncRun.RunType.INCREMENTAL
-
-    @patch("jira_workspace.views.SyncService.enqueue_sync")
-    def test_sync_page_queues_full_sync(self, enqueue_sync):
-        response = self.client.post(
-            reverse("jira_workspace:sync"),
-            {
-                "action": "run_sync",
-                "profile_id": str(self.profile.id),
-                "run_type": JiraSyncRun.RunType.FULL,
-            },
-        )
-
-        assert response.status_code == 302
-        enqueue_sync.assert_called_once()
-        assert enqueue_sync.call_args.args[0] == self.profile
-        assert enqueue_sync.call_args.args[1] == JiraSyncRun.RunType.FULL
-
-    @patch("jira_workspace.views.SyncService.enqueue_sync")
-    def test_sync_page_shows_error_when_full_run_blocks_new_enqueue(self, enqueue_sync):
-        enqueue_sync.side_effect = ActiveFullSyncError(
-            "A Jira full sync is already queued or running. "
-            "Wait for it to finish before starting another Jira sync task."
-        )
-
-        response = self.client.post(
-            reverse("jira_workspace:sync"),
-            {
-                "action": "run_sync",
-                "profile_id": str(self.profile.id),
-                "run_type": JiraSyncRun.RunType.INCREMENTAL,
-            },
-            follow=True,
-        )
-
-        assert response.status_code == 200
-        assert "A Jira full sync is already queued or running." in response.content.decode()
-
     def test_sync_page_keeps_run_buttons_enabled_when_full_run_is_active(self):
         JiraSyncRun.objects.create(
             profile=self.profile,
@@ -1544,8 +1610,8 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
 
         assert response.status_code == 200
         content = response.content.decode()
-        incremental_button = content.split('name="run_type" value="incremental"', 1)[1].split(">", 1)[0]
-        full_button = content.split('name="run_type" value="full"', 1)[1].split(">", 1)[0]
+        incremental_button = content.split('name="action" value="run_scope_incremental"', 1)[1].split(">", 1)[0]
+        full_button = content.split('name="action" value="run_scope_full"', 1)[1].split(">", 1)[0]
         assert "disabled" not in incremental_button
         assert "disabled" not in full_button
         assert "A Jira full sync is already queued or running." in content
@@ -2528,16 +2594,29 @@ class JiraWorkspaceStylesheetTests(TestCase):
         html = Path(settings.BASE_DIR / "templates/jira_workspace/sync.html").read_text()
 
         assert ".sync-command-center" in css
+        assert ".sync-card--policy" in css
         assert ".sync-card--profile" in css
         assert ".sync-card--controls" in css
         assert ".sync-card--status" in css
+        assert ".sync-card--runs" in css
+        assert ".sync-card--logs" in css
+        assert ".sync-details {" in css
+        assert ".sync-details__header" in css
         assert ".sync-details__panel[hidden]" in css
         assert "@media (min-width: 1401px)" in css
+        assert "grid-template-columns: repeat(6, minmax(0, 1fr));" in css
         assert ".sync-command-center > .dashboard-grid" in css
         assert "display: contents;" in css
+        assert ".sync-card--profile,\n  .sync-card--controls,\n  .sync-card--status" in css
+        assert "grid-column: span 2;" in css
+        assert ".sync-card--runs,\n  .sync-card--logs" in css
+        assert "grid-column: span 3;" in css
+        assert ".sync-card--policy,\n  .sync-details" in css
+        assert "grid-column: 1 / -1;" in css
         assert 'data-sync-summary-runs' in html
         assert 'data-sync-details-toggle="history"' in html
-        assert 'data-sync-details-toggle="profile"' in html
+        assert 'data-sync-details-toggle="scope-reports"' in html
+        assert 'data-sync-details-toggle="profile"' not in html
 
     def test_sync_command_center_javascript_hooks_are_present(self):
         js = Path(settings.BASE_DIR / "static/jira_workspace/jira.js").read_text()
