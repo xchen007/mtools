@@ -3031,8 +3031,6 @@ body.nav-collapsed .rail-item__icon {
     grid-column: 1 / -1;
   }
 
-  .sync-card--profile,
-  .sync-card--controls,
   .sync-card--status {
     grid-column: span 2;
   }

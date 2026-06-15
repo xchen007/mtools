@@ -384,7 +384,6 @@ def sync(request):
     operation_log_service = OperationLogService()
     jira_connection = connection_service.get_active_connection()
     connection_form = JiraConnectionForm(instance=jira_connection)
-    sync_fallback_url = reverse("jira_workspace:sync")
 
     if request.method == "POST":
         action = request.POST.get("action")
@@ -396,7 +395,7 @@ def sync(request):
                     _safe_next_url(
                         request,
                         request.POST.get("next"),
-                        fallback=sync_fallback_url,
+                        fallback=reverse("jira_workspace:sync"),
                     )
                 )
         elif action == "test_connection":
@@ -410,7 +409,7 @@ def sync(request):
                 _safe_next_url(
                     request,
                     request.POST.get("next"),
-                    fallback=sync_fallback_url,
+                    fallback=reverse("jira_workspace:sync"),
                 )
             )
         elif action == "rebuild_policy":
@@ -482,15 +481,6 @@ def sync(request):
                     messages.error(request, "Unable to add sync scope.")
 
     sync_status = sync_service.build_sync_status()
-    has_active_sync = any(
-        run.status in {JiraSyncRun.Status.QUEUED, JiraSyncRun.Status.RUNNING}
-        for run in sync_status["recent_runs"]
-    )
-    has_active_full_sync = any(
-        run.run_type == JiraSyncRun.RunType.FULL
-        and run.status in {JiraSyncRun.Status.QUEUED, JiraSyncRun.Status.RUNNING}
-        for run in sync_status["recent_runs"]
-    )
     global_policy = sync_service.ensure_global_policy()
     policy_scopes = []
     scope_sync_reports = JiraScopeSyncReport.objects.none()
@@ -504,8 +494,23 @@ def sync(request):
             .filter(policy_version_id=global_policy.current_version_id)
             .order_by("-started_at", "-id")[:20]
         )
+    active_scope_statuses = {
+        SyncScope.RunStatus.QUEUED_FULL,
+        SyncScope.RunStatus.RUNNING_FULL,
+        SyncScope.RunStatus.QUEUED_INCREMENTAL,
+        SyncScope.RunStatus.RUNNING_INCREMENTAL,
+    }
+    active_full_scope_statuses = {
+        SyncScope.RunStatus.QUEUED_FULL,
+        SyncScope.RunStatus.RUNNING_FULL,
+    }
+    has_active_sync = any(
+        scope.last_run_status in active_scope_statuses for scope in policy_scopes
+    )
+    has_active_full_sync = any(
+        scope.last_run_status in active_full_scope_statuses for scope in policy_scopes
+    )
     context = {
-        "sync_runs": sync_status["recent_runs"],
         "has_active_sync": has_active_sync,
         "has_active_full_sync": has_active_full_sync,
         "latest_failed_run": sync_status["latest_failure"],
@@ -865,13 +870,6 @@ def toggle_star(request):
     return redirect(next_url)
 
 
-def _sync_url_for_profile(profile):
-    sync_url = reverse("jira_workspace:sync")
-    if profile:
-        return f"{sync_url}?profile={profile.id}"
-    return sync_url
-
-
 def _safe_next_url(request, next_url, *, fallback):
     if next_url and url_has_allowed_host_and_scheme(
         next_url,
@@ -912,15 +910,6 @@ def _resolve_selected_query(query_id, queryset):
         return queryset.get(pk=query_id)
     except (JiraSavedQuery.DoesNotExist, ValueError, TypeError):
         return queryset.first()
-
-
-def _resolve_selected_profile(profile_id):
-    if not profile_id:
-        return None
-    try:
-        return JiraSyncProfile.objects.get(pk=profile_id)
-    except (JiraSyncProfile.DoesNotExist, ValueError, TypeError):
-        return None
 
 
 def _resolve_selected_sync2pod_profile(profile_id):

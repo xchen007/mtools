@@ -28,6 +28,7 @@ from jira_workspace.models import (
     Sync2PodWatchEvent,
     WorkspaceStar,
 )
+
 def create_current_policy_scope():
     policy, _ = GlobalSyncPolicy.objects.get_or_create(
         name="Primary Jira Policy",
@@ -1136,11 +1137,14 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         content = response.content.decode()
         assert "Global Sync Policy" in content
         assert "Latest Status" in content
-        assert "Recent Runs Summary" in content
+        assert "Recent Scope Reports Summary" in content
         assert "Recent Logs Summary" in content
         assert "Details" in content
-        assert "Run History" in content
+        assert "Scope Report History" in content
         assert "Policy Editor" in content
+        assert "Current Profile" not in content
+        assert "Profile Editor" not in content
+        assert "Sync Controls" not in content
         assert "Sync Run Timeline" not in content
         assert "Run Configuration Presets" not in content
 
@@ -1150,6 +1154,8 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert response.status_code == 200
         content = response.content.decode()
         assert 'class="panel sync-card sync-card--policy"' in content
+        assert 'class="panel sync-card sync-card--profile"' not in content
+        assert 'class="panel panel--tight sync-card sync-card--controls"' not in content
         assert "Current Profile" not in content
         assert "Sync Controls" not in content
         assert 'name="action" value="run_sync"' not in content
@@ -1162,6 +1168,9 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert details_panel_tags
         for panel_tag in details_panel_tags:
             assert "sync-details__panel" in panel_tag
+        assert "selected_profile" not in response.context
+        assert 'name="action" value="run_scope_incremental"' in content
+        assert 'name="action" value="run_scope_full"' in content
 
     def test_sync_page_renders_global_policy_status_and_scope_cards(self):
         response = self.client.get(reverse("jira_workspace:sync"))
@@ -1460,24 +1469,46 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         content = response.content.decode()
         assert 'data-sync-details-toggle' in content
         assert 'data-sync-details-panel="history"' in content
+        assert 'data-sync-details-panel="profile"' not in content
         detail_panel_tags = re.findall(r"<section[^>]+data-sync-details-panel=\"([^\"]+)\"[^>]*>", content)
-        detail_toggle_targets = set(re.findall(r'data-sync-details-toggle="([^"]+)"', content))
+        detail_toggle_targets = re.findall(r'data-sync-details-toggle="([^"]+)"', content)
         assert detail_panel_tags
-        assert set(detail_panel_tags).issubset(detail_toggle_targets)
+        assert set(detail_panel_tags) == {"history", "scope-reports", "policy"}
+        assert set(detail_toggle_targets) == set(detail_panel_tags)
+        assert len(detail_toggle_targets) == len(set(detail_toggle_targets))
+        assert len(detail_panel_tags) == len(set(detail_panel_tags))
+        assert 'role="tablist"' in content
         for panel_target in detail_panel_tags:
+            toggle_open_tag = content.split(f'data-sync-details-toggle="{panel_target}"', 1)[0].rsplit("<button", 1)[1]
+            assert 'role="tab"' in toggle_open_tag
+            assert 'aria-selected="false"' in toggle_open_tag
             panel_open_tag = content.split(f'data-sync-details-panel="{panel_target}"', 1)[1].split(">", 1)[0]
             assert "hidden" in panel_open_tag
         history_open_tag = content.split('data-sync-details-panel="history"', 1)[1].split(">", 1)[0]
         assert "hidden" in history_open_tag
 
     def test_sync_page_renders_compact_recent_run_summary_rows(self):
+        JiraScopeSyncReport.objects.create(
+            policy_version=self.policy_version,
+            scope=self.sync_scope,
+            run_type=JiraScopeSyncReport.RunType.INCREMENTAL,
+            status=JiraScopeSyncReport.Status.SUCCESS,
+            started_at=datetime.now(timezone.utc),
+            finished_at=datetime.now(timezone.utc),
+            effective_jql=self.sync_scope.base_jql,
+            fetched_count=3,
+            duration_ms=45,
+        )
+
         response = self.client.get(reverse("jira_workspace:sync"))
 
         assert response.status_code == 200
         content = response.content.decode()
         assert 'data-sync-summary-runs' in content
         assert 'data-sync-summary-run-item' in content
-        assert "Recent Sync Runs" in content
+        assert "Recent Scope Reports Summary" in content
+        assert "My Assigned or Reported Issues" in content
+        assert "45ms" in content
 
     def test_sync_page_keeps_full_run_history_table_inside_details(self):
         response = self.client.get(reverse("jira_workspace:sync"))
@@ -1485,8 +1516,10 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert response.status_code == 200
         content = response.content.decode()
         details_region = content.split('data-sync-details-panel="history"', 1)[1]
+        assert "<th scope=\"col\">Scope</th>" in details_region
+        assert "<th scope=\"col\">Policy Version</th>" in details_region
         assert "<th scope=\"col\">Log</th>" in details_region
-        assert "Recent Sync Runs" in content
+        assert "Scope Report History" in content
 
     def test_sync_page_renders_global_policy_runs_and_blocker_state(self):
         response = self.client.get(reverse("jira_workspace:sync"))
@@ -1494,7 +1527,7 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert response.status_code == 200
         content = response.content.decode()
         assert "Global Sync Policy" in content
-        assert "Recent Runs Summary" in content
+        assert "Recent Scope Reports Summary" in content
         assert "My Assigned or Reported Issues" in content
         assert "success" in content.lower()
         assert "The request is blocked." in content
@@ -1507,13 +1540,15 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert "Jira Connection" in content
         assert "Save connection" in content
 
-    def test_sync_page_renders_failed_run_log_in_recent_runs_table(self):
-        JiraSyncRun.objects.create(
-            profile=self.profile,
-            run_type=JiraSyncRun.RunType.FULL,
-            status=JiraSyncRun.Status.FAILED,
+    def test_sync_page_renders_failed_scope_report_log_in_history_table(self):
+        JiraScopeSyncReport.objects.create(
+            policy_version=self.policy_version,
+            scope=self.sync_scope,
+            run_type=JiraScopeSyncReport.RunType.FULL,
+            status=JiraScopeSyncReport.Status.FAILED,
             started_at=datetime.now(timezone.utc),
             finished_at=datetime.now(timezone.utc),
+            effective_jql=self.sync_scope.base_jql,
             error_message="JIRA_API_BASE_URL and JIRA_API_TOKEN are required.",
         )
 
@@ -1598,34 +1633,35 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert "Test connection" in drawer
 
     def test_sync_page_keeps_run_buttons_enabled_when_full_run_is_active(self):
-        JiraSyncRun.objects.create(
-            profile=self.profile,
-            run_type=JiraSyncRun.RunType.FULL,
-            status=JiraSyncRun.Status.RUNNING,
-            started_at=datetime.now(timezone.utc),
-            progress_message="Fetched 10 of 20 issues.",
-        )
+        self.sync_scope.last_run_status = SyncScope.RunStatus.RUNNING_FULL
+        self.sync_scope.save(update_fields=["last_run_status", "updated_at"])
 
         response = self.client.get(reverse("jira_workspace:sync"))
 
         assert response.status_code == 200
         content = response.content.decode()
-        incremental_button = content.split('name="action" value="run_scope_incremental"', 1)[1].split(">", 1)[0]
-        full_button = content.split('name="action" value="run_scope_full"', 1)[1].split(">", 1)[0]
+        incremental_button = content.split('name="action" value="run_scope_incremental"', 1)[1].split("</form>", 1)[0]
+        full_button = content.split('name="action" value="run_scope_full"', 1)[1].split("</form>", 1)[0]
         assert "disabled" not in incremental_button
         assert "disabled" not in full_button
         assert "A Jira full sync is already queued or running." in content
 
     def test_sync_page_renders_running_progress(self):
-        JiraSyncRun.objects.create(
-            profile=self.profile,
-            run_type=JiraSyncRun.RunType.FULL,
-            status=JiraSyncRun.Status.RUNNING,
+        self.sync_scope.last_run_status = SyncScope.RunStatus.RUNNING_FULL
+        self.sync_scope.save(update_fields=["last_run_status", "updated_at"])
+        JiraScopeSyncReport.objects.create(
+            policy_version=self.policy_version,
+            scope=self.sync_scope,
+            run_type=JiraScopeSyncReport.RunType.FULL,
+            status=JiraScopeSyncReport.Status.SUCCESS,
             started_at=datetime.now(timezone.utc),
+            finished_at=datetime.now(timezone.utc),
+            effective_jql=self.sync_scope.base_jql,
             fetched_count=40,
-            progress_current_count=40,
-            progress_total_count=100,
-            progress_message="Fetched 40 of 100 issues.",
+            inserted_count=4,
+            updated_count=6,
+            unchanged_checked_count=30,
+            duration_ms=100,
         )
 
         response = self.client.get(reverse("jira_workspace:sync"))
@@ -1633,19 +1669,25 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert response.status_code == 200
         content = response.content.decode()
         assert 'data-sync-refresh="active"' in content
-        assert "Fetched 40 of 100 issues." in content
-        assert 'aria-valuenow="40"' in content
+        assert "fetched 40" in content
+        assert "unchanged 30" in content
 
     def test_sync_page_renders_running_progress_inside_latest_status(self):
-        JiraSyncRun.objects.create(
-            profile=self.profile,
-            run_type=JiraSyncRun.RunType.FULL,
-            status=JiraSyncRun.Status.RUNNING,
+        self.sync_scope.last_run_status = SyncScope.RunStatus.RUNNING_FULL
+        self.sync_scope.save(update_fields=["last_run_status", "updated_at"])
+        JiraScopeSyncReport.objects.create(
+            policy_version=self.policy_version,
+            scope=self.sync_scope,
+            run_type=JiraScopeSyncReport.RunType.FULL,
+            status=JiraScopeSyncReport.Status.SUCCESS,
             started_at=datetime.now(timezone.utc),
+            finished_at=datetime.now(timezone.utc),
+            effective_jql=self.sync_scope.base_jql,
             fetched_count=40,
-            progress_current_count=40,
-            progress_total_count=100,
-            progress_message="Fetched 40 of 100 issues.",
+            inserted_count=4,
+            updated_count=6,
+            unchanged_checked_count=30,
+            duration_ms=100,
         )
 
         response = self.client.get(reverse("jira_workspace:sync"))
@@ -1653,9 +1695,9 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert response.status_code == 200
         content = response.content.decode()
         assert "Latest Status" in content
-        latest_status_block = content.split("Latest Status", 1)[1].split("Recent Runs Summary", 1)[0]
-        assert "Fetched 40 of 100 issues." in latest_status_block
-        assert 'aria-valuenow="40"' in latest_status_block
+        latest_status_block = content.split("Latest Status", 1)[1].split("Recent Scope Reports Summary", 1)[0]
+        assert "fetched 40" in latest_status_block
+        assert "unchanged 30" in latest_status_block
 
     def test_sync_page_keeps_recent_logs_summary_links(self):
         response = self.client.get(reverse("jira_workspace:sync"))
@@ -2595,8 +2637,8 @@ class JiraWorkspaceStylesheetTests(TestCase):
 
         assert ".sync-command-center" in css
         assert ".sync-card--policy" in css
-        assert ".sync-card--profile" in css
-        assert ".sync-card--controls" in css
+        assert ".sync-card--profile" not in css
+        assert ".sync-card--controls" not in css
         assert ".sync-card--status" in css
         assert ".sync-card--runs" in css
         assert ".sync-card--logs" in css
@@ -2607,7 +2649,7 @@ class JiraWorkspaceStylesheetTests(TestCase):
         assert "grid-template-columns: repeat(6, minmax(0, 1fr));" in css
         assert ".sync-command-center > .dashboard-grid" in css
         assert "display: contents;" in css
-        assert ".sync-card--profile,\n  .sync-card--controls,\n  .sync-card--status" in css
+        assert ".sync-card--status {\n    grid-column: span 2;" in css
         assert "grid-column: span 2;" in css
         assert ".sync-card--runs,\n  .sync-card--logs" in css
         assert "grid-column: span 3;" in css
@@ -2616,7 +2658,11 @@ class JiraWorkspaceStylesheetTests(TestCase):
         assert 'data-sync-summary-runs' in html
         assert 'data-sync-details-toggle="history"' in html
         assert 'data-sync-details-toggle="scope-reports"' in html
+        assert 'data-sync-details-toggle="policy"' in html
         assert 'data-sync-details-toggle="profile"' not in html
+        assert 'data-sync-details-panel="profile"' not in html
+        assert 'aria-selected="false"' in html
+        assert 'role="tablist"' in html
 
     def test_sync_command_center_javascript_hooks_are_present(self):
         js = Path(settings.BASE_DIR / "static/jira_workspace/jira.js").read_text()
@@ -2624,6 +2670,10 @@ class JiraWorkspaceStylesheetTests(TestCase):
 
         assert 'data-sync-details-toggle' in js
         assert 'data-sync-details-panel' in js
+        assert 'classList.toggle("is-active", active)' in js
+        assert 'aria-selected", active ? "true" : "false"' in js
+        assert 'panel.removeAttribute("hidden")' in js
+        assert 'panel.setAttribute("hidden", "")' in js
         assert 'sync-details__panel' in css
         assert 'initializeSyncRefresh();' in js
 

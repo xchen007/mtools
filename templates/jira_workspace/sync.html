@@ -7,7 +7,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Jira Sync</h1>
-      <p class="page-subtitle">Global policy scopes, recent runs, and external Jira blocker visibility.</p>
+      <p class="page-subtitle">Global policy scopes, scope reports, and external Jira blocker visibility.</p>
     </div>
     {% include "jira_workspace/partials/star_button.html" with star=page_star %}
   </div>
@@ -44,6 +44,7 @@
       </div>
     </section>
     {% endif %}
+
     <div class="dashboard-grid dashboard-grid--main-first">
       <section class="panel sync-card sync-card--status">
         <div class="panel__header">
@@ -56,27 +57,21 @@
             <span class="status-pill status-pill--success">Ready</span>
           {% endif %}
         </div>
-        {% with latest_run=sync_runs|first %}
-          {% if latest_run %}
+        {% with latest_report=scope_sync_reports|first %}
+          {% if latest_report %}
             <article class="recent-item">
               <div class="recent-item__top">
-                <span class="issue-key">{{ latest_run.get_run_type_display }}</span>
-                <span class="issue-status">{{ latest_run.status }}</span>
+                <span class="issue-key">{{ latest_report.scope.name }}</span>
+                <span class="issue-status">{{ latest_report.status }}</span>
               </div>
               <div class="recent-item__summary">
-                {{ latest_run.progress_message|default:latest_run.error_message|default:"No summary recorded." }}
+                v{{ latest_report.policy_version.version_no }} {{ latest_report.get_run_type_display }}
+                fetched {{ latest_report.fetched_count }},
+                inserted {{ latest_report.inserted_count }},
+                updated {{ latest_report.updated_count }},
+                unchanged {{ latest_report.unchanged_checked_count }}.
               </div>
-              {% if latest_run.status == "queued" or latest_run.status == "running" %}
-                <div class="sync-progress">
-                  <div class="sync-progress__bar" role="progressbar" aria-valuemin="0" aria-valuemax="{{ latest_run.progress_total_count|default:100 }}" aria-valuenow="{{ latest_run.progress_current_count|default:0 }}">
-                    <span class="sync-progress__fill" style="width: {{ latest_run.progress_percent }}%;"></span>
-                  </div>
-                </div>
-              {% endif %}
             </article>
-            {% if has_active_full_sync %}
-              <p class="empty-state">A Jira full sync is already queued or running. Wait for it to finish before starting another Jira sync task.</p>
-            {% endif %}
           {% elif has_external_blocker %}
             <article class="recent-item">
               <div class="recent-item__top">
@@ -86,32 +81,33 @@
               <div class="recent-item__summary">{{ latest_failed_run.error_message }}</div>
             </article>
           {% else %}
-            <p class="empty-state">No sync runs recorded yet.</p>
+            <p class="empty-state">No scope sync reports recorded yet.</p>
           {% endif %}
         {% endwith %}
+        {% if has_active_full_sync %}
+          <p class="empty-state">A Jira full sync is already queued or running. Wait for it to finish before starting another Jira sync task.</p>
+        {% endif %}
       </section>
 
       <aside class="dashboard-sidebar">
         <section class="panel panel--tight sync-card sync-card--runs">
           <div class="panel__header">
-            <h2 class="section-title">Recent Runs Summary</h2>
+            <h2 class="section-title">Recent Scope Reports Summary</h2>
           </div>
           <div class="recent-list" data-sync-summary-runs>
-            {% for run in sync_runs|slice:":5" %}
+            {% for report in scope_sync_reports|slice:":5" %}
               <article class="recent-item" data-sync-summary-run-item>
                 <div class="recent-item__top">
-                  <span class="issue-key">{{ run.profile.name }}</span>
-                  <span class="issue-status">{{ run.status }}</span>
+                  <span class="issue-key">{{ report.scope.name }}</span>
+                  <span class="issue-status">{{ report.status }}</span>
                 </div>
                 <div class="recent-item__summary">
-                  {{ run.progress_message|default:run.get_run_type_display }}
-                  {% if not run.progress_message %}
-                    run with {{ run.fetched_count }} fetched.
-                  {% endif %}
+                  v{{ report.policy_version.version_no }} {{ report.get_run_type_display }}
+                  with {{ report.fetched_count }} fetched in {{ report.duration_ms }}ms.
                 </div>
               </article>
             {% empty %}
-              <p class="empty-state">No sync runs recorded yet.</p>
+              <p class="empty-state">No scope sync reports recorded yet.</p>
             {% endfor %}
           </div>
         </section>
@@ -128,20 +124,20 @@
       <div class="panel__header sync-details__header">
         <h2 class="section-title">Details</h2>
       </div>
-      <div class="toolbar toolbar--actions">
-        <button type="button" data-sync-details-toggle="history">Run History</button>
-        <button type="button" data-sync-details-toggle="scope-reports">Scope Reports</button>
-        <button type="button" data-sync-details-toggle="policy">Policy Settings</button>
+      <div class="toolbar toolbar--actions" role="tablist">
+        <button type="button" role="tab" aria-selected="false" data-sync-details-toggle="history">Scope Report History</button>
+        <button type="button" role="tab" aria-selected="false" data-sync-details-toggle="scope-reports">Scope Reports</button>
+        <button type="button" role="tab" aria-selected="false" data-sync-details-toggle="policy">Policy Settings</button>
       </div>
 
       <section class="panel panel--tight sync-details__panel" data-sync-details-panel="history" hidden>
         <div class="panel__header">
-          <h3 class="section-title">Recent Sync Runs</h3>
+          <h3 class="section-title">Scope Report History</h3>
           {% if has_external_blocker %}
             <span class="status-pill status-pill--failed">{{ jira_blocker_message }}</span>
           {% endif %}
         </div>
-        {% include "jira_workspace/partials/sync_runs.html" with sync_runs=sync_runs %}
+        {% include "jira_workspace/partials/sync_runs.html" with scope_sync_reports=scope_sync_reports %}
       </section>
 
       <section class="panel panel--tight sync-details__panel" data-sync-details-panel="scope-reports" hidden>

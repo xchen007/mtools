@@ -2,54 +2,41 @@
   <table class="ticket-table ticket-table--compact">
     <thead>
       <tr>
-        <th scope="col">Profile</th>
+        <th scope="col">Scope</th>
+        <th scope="col">Policy Version</th>
         <th scope="col">Run Type</th>
         <th scope="col">Status</th>
         <th scope="col">Started</th>
         <th scope="col">Finished</th>
         <th scope="col">Fetched</th>
-        <th scope="col">Progress</th>
         <th scope="col">Inserted</th>
         <th scope="col">Updated</th>
-        <th scope="col">Skipped</th>
+        <th scope="col">Unchanged</th>
+        <th scope="col">Deactivated</th>
+        <th scope="col">Duration</th>
         <th scope="col">Log</th>
       </tr>
     </thead>
     <tbody>
-      {% for run in sync_runs %}
+      {% for report in scope_sync_reports %}
         <tr>
-          <td>{{ run.profile.name|default:"-" }}</td>
-          <td>{{ run.get_run_type_display|default:run.run_type|default:"-" }}</td>
-          <td><span class="status-pill status-pill--{{ run.status|default:'neutral' }}">{{ run.status|default:"-" }}</span></td>
-          <td>{{ run.started_at|date:"Y-m-d H:i"|default:"-" }}</td>
-          <td>{{ run.finished_at|date:"Y-m-d H:i"|default:"-" }}</td>
-          <td>{{ run.fetched_count|default:0 }}</td>
-          <td>
-            {% if run.status == "queued" or run.status == "running" %}
-              <div class="sync-progress">
-                <div
-                  class="sync-progress__bar"
-                  role="progressbar"
-                  aria-valuemin="0"
-                  aria-valuemax="{{ run.progress_total_count|default:100 }}"
-                  aria-valuenow="{{ run.progress_current_count|default:0 }}"
-                >
-                  <span class="sync-progress__fill" style="width: {{ run.progress_percent }}%;"></span>
-                </div>
-                <span class="sync-progress__message">{{ run.progress_message|default:"Queued" }}</span>
-              </div>
-            {% else %}
-              {{ run.progress_message|default:"-" }}
-            {% endif %}
-          </td>
-          <td>{{ run.inserted_count|default:0 }}</td>
-          <td>{{ run.updated_count|default:0 }}</td>
-          <td>{{ run.skipped_count|default:0 }}</td>
-          <td class="sync-run-log">{{ run.error_message|default:"-" }}</td>
+          <td>{{ report.scope.name|default:"-" }}</td>
+          <td>v{{ report.policy_version.version_no|default:"-" }}</td>
+          <td>{{ report.get_run_type_display|default:report.run_type|default:"-" }}</td>
+          <td><span class="status-pill status-pill--{{ report.status|default:'neutral' }}">{{ report.status|default:"-" }}</span></td>
+          <td>{{ report.started_at|date:"Y-m-d H:i"|default:"-" }}</td>
+          <td>{{ report.finished_at|date:"Y-m-d H:i"|default:"-" }}</td>
+          <td>{{ report.fetched_count|default:0 }}</td>
+          <td>{{ report.inserted_count|default:0 }}</td>
+          <td>{{ report.updated_count|default:0 }}</td>
+          <td>{{ report.unchanged_checked_count|default:0 }}</td>
+          <td>{{ report.deactivated_membership_count|default:0 }}</td>
+          <td>{{ report.duration_ms|default:0 }}ms</td>
+          <td class="sync-run-log">{{ report.error_message|default:"-" }}</td>
         </tr>
       {% empty %}
         <tr>
-          <td class="empty-state empty-state--cell" colspan="11">No sync runs recorded yet.</td>
+          <td class="empty-state empty-state--cell" colspan="13">No scope sync reports recorded yet.</td>
         </tr>
       {% endfor %}
     </tbody>
