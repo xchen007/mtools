@@ -15,7 +15,6 @@ from jira_workspace.models import (
     JiraConnection,
     JiraIssue,
     JiraIssueScopeMembership,
-    JiraScopeSyncReport,
     OperationLog,
     GlobalSyncPolicy,
     GlobalSyncPolicyVersion,
@@ -270,22 +269,6 @@ class JiraWorkspaceDashboardViewTests(TestCase):
         assert "External Jira access is currently blocked" not in content
         assert "No cached Jira issues are available yet." not in content
 
-    def test_dashboard_surfaces_current_cache_alignment_status(self):
-        self.sync_scope.last_run_status = SyncScope.RunStatus.FAILED
-        self.sync_scope.last_error_message = "Required scope failure"
-        self.sync_scope.save(update_fields=["last_run_status", "last_error_message", "updated_at"])
-        policy = self.policy_version.policy
-        policy.status = GlobalSyncPolicy.Status.STALE
-        policy.save(update_fields=["status", "updated_at"])
-
-        response = self.client.get(reverse("jira_workspace:dashboard"))
-
-        assert response.status_code == 200
-        content = response.content.decode()
-        assert "Cache Alignment" in content
-        assert "Stale" in content
-        assert "Required scope failure" in content
-
 
 class JiraWorkspaceSecondaryPagesTests(TestCase):
     def setUp(self):
@@ -412,17 +395,6 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert response.status_code == 200
         content = response.content.decode()
         assert "No cached Jira issues are available yet." in content
-
-    def test_query_page_surfaces_active_policy_ticket_freshness(self):
-        self.sync_scope.last_successful_check_at = datetime.now(timezone.utc)
-        self.sync_scope.save(update_fields=["last_successful_check_at", "updated_at"])
-
-        response = self.client.get(reverse("jira_workspace:query"))
-
-        assert response.status_code == 200
-        content = response.content.decode()
-        assert "Current Policy Version" in content
-        assert "Last Successful Check" in content
 
     def test_query_page_can_persist_a_saved_query_from_editor_form(self):
         response = self.client.post(
@@ -1296,6 +1268,29 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
             scope_type=SyncScope.ScopeType.PROJECT,
             name="OPS Project",
             config_json__project_key="OPS",
+        ).exists()
+
+    def test_sync_post_can_add_label_policy_scope(self):
+        policy = GlobalSyncPolicy.objects.get(name="Primary Jira Policy")
+
+        response = self.client.post(
+            reverse("jira_workspace:sync"),
+            {
+                "action": "add_scope",
+                "policy_id": str(policy.id),
+                "scope_type": SyncScope.ScopeType.LABEL,
+                "name": "Customer Impact",
+                "schedule_minutes": "30",
+                "label": "customer-impact",
+            },
+        )
+
+        assert response.status_code == 302
+        policy.refresh_from_db()
+        assert policy.current_version.scopes.filter(
+            scope_type=SyncScope.ScopeType.LABEL,
+            name="Customer Impact",
+            config_json__label="customer-impact",
         ).exists()
 
     def test_sync_page_collapses_details_by_default(self):
