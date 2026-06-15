@@ -3021,6 +3021,11 @@ body.nav-collapsed .rail-item__icon {
     align-items: start;
   }
 
+  .sync-command-center > .dashboard-grid,
+  .sync-command-center > .dashboard-grid > .dashboard-sidebar {
+    display: contents;
+  }
+
   .sync-card--profile,
   .sync-card--controls,
   .sync-card--status {
