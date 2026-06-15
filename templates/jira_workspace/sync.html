@@ -29,12 +29,87 @@
           <dd class="meta-grid__code">{{ global_policy.strategy_hash|truncatechars:12 }}</dd>
         </div>
       </dl>
+      <section class="panel panel--tight">
+        <div class="panel__header">
+          <h3 class="section-title">Policy Editor</h3>
+        </div>
+        <form method="post" class="config-form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="save_policy">
+          <input type="hidden" name="policy_id" value="{{ global_policy.id }}">
+          <div class="form-grid">
+            <label>
+              <span>Policy Name</span>
+              <input type="text" name="name" value="{{ policy_form.name.value|default:global_policy.name }}" required>
+            </label>
+          </div>
+          <div class="toolbar toolbar--actions">
+            <button type="submit">Save Policy</button>
+          </div>
+        </form>
+      </section>
+      <section class="panel panel--tight">
+        <div class="panel__header">
+          <h3 class="section-title">Add Scope</h3>
+        </div>
+        <form method="post" class="config-form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="add_scope">
+          <input type="hidden" name="policy_id" value="{{ global_policy.id }}">
+          <div class="form-grid">
+            <label>
+              <span>Scope Type</span>
+              <select name="scope_type" required>
+                {% for value, label in scope_form.fields.scope_type.choices %}
+                  <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              <span>Name</span>
+              <input type="text" name="name" required>
+            </label>
+            <label>
+              <span>Schedule Minutes</span>
+              <input type="number" name="schedule_minutes" min="5" value="30">
+            </label>
+            <label>
+              <span>Username</span>
+              <input type="text" name="username" placeholder="xchen17">
+            </label>
+            <label>
+              <span>Project Key</span>
+              <input type="text" name="project_key" placeholder="OPS">
+            </label>
+            <label>
+              <span>Label</span>
+              <input type="text" name="label" placeholder="customer-impact">
+            </label>
+            <label>
+              <span>Sprint</span>
+              <input type="text" name="sprint" placeholder="Sprint 42">
+            </label>
+            <label>
+              <span>Custom JQL</span>
+              <input type="text" name="custom_jql" placeholder='project = "OPS" AND status = "Blocked"'>
+            </label>
+          </div>
+          <div class="toolbar toolbar--actions">
+            <button type="submit">Add Scope</button>
+          </div>
+        </form>
+      </section>
       <div class="toolbar toolbar--actions">
         <form method="post">
           {% csrf_token %}
           <input type="hidden" name="action" value="rebuild_policy">
           <input type="hidden" name="policy_id" value="{{ global_policy.id }}">
           <button type="submit">Force Rebuild</button>
+        </form>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="run_due_scopes">
+          <button type="submit">Run Due Scopes</button>
         </form>
       </div>
       {% if policy_scopes %}
@@ -54,6 +129,12 @@
                   <input type="hidden" name="scope_id" value="{{ scope.id }}">
                   <button type="submit">Run Incremental</button>
                 </form>
+                <form method="post">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="run_scope_full">
+                  <input type="hidden" name="scope_id" value="{{ scope.id }}">
+                  <button type="submit">Run Full</button>
+                </form>
               </div>
             </article>
             {% endif %}
@@ -65,6 +146,20 @@
               <div class="profile-card__header">
                 <h4 class="profile-card__title">{{ scope.name }}</h4>
                 <span class="status-pill status-pill--neutral">{{ scope.last_run_status|default:"pending" }}</span>
+              </div>
+              <div class="toolbar toolbar--actions">
+                <form method="post">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="run_scope_incremental">
+                  <input type="hidden" name="scope_id" value="{{ scope.id }}">
+                  <button type="submit">Run Incremental</button>
+                </form>
+                <form method="post">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="run_scope_full">
+                  <input type="hidden" name="scope_id" value="{{ scope.id }}">
+                  <button type="submit">Run Full</button>
+                </form>
               </div>
             </article>
             {% endif %}
@@ -230,6 +325,49 @@
           {% endif %}
         </div>
         {% include "jira_workspace/partials/sync_runs.html" with sync_runs=sync_runs %}
+      </section>
+
+      <section class="panel panel--tight sync-details__panel" data-sync-details-panel="scope-reports">
+        <div class="panel__header">
+          <h3 class="section-title">Scope Sync Reports</h3>
+          <span class="status-pill status-pill--neutral">{{ scope_sync_reports|length }} reports</span>
+        </div>
+        <div class="table-wrap">
+          <table class="ticket-table ticket-table--compact">
+            <thead>
+              <tr>
+                <th scope="col">Scope</th>
+                <th scope="col">Run Type</th>
+                <th scope="col">Status</th>
+                <th scope="col">Fetched</th>
+                <th scope="col">Inserted</th>
+                <th scope="col">Updated</th>
+                <th scope="col">Unchanged</th>
+                <th scope="col">Deactivated</th>
+                <th scope="col">Duration</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for report in scope_sync_reports %}
+                <tr>
+                  <td>{{ report.scope.name }}</td>
+                  <td>{{ report.get_run_type_display }}</td>
+                  <td><span class="status-pill status-pill--{{ report.status }}">{{ report.status }}</span></td>
+                  <td>{{ report.fetched_count }}</td>
+                  <td>{{ report.inserted_count }}</td>
+                  <td>{{ report.updated_count }}</td>
+                  <td>{{ report.unchanged_checked_count }}</td>
+                  <td>{{ report.deactivated_membership_count }}</td>
+                  <td>{{ report.duration_ms }}ms</td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td class="empty-state empty-state--cell" colspan="9">No scope sync reports recorded yet.</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section class="panel panel--tight sync-details__panel" data-sync-details-panel="profile" hidden>

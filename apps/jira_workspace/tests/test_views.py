@@ -15,6 +15,7 @@ from jira_workspace.models import (
     JiraConnection,
     JiraIssue,
     JiraIssueScopeMembership,
+    JiraScopeSyncReport,
     OperationLog,
     GlobalSyncPolicy,
     GlobalSyncPolicyVersion,
@@ -269,6 +270,22 @@ class JiraWorkspaceDashboardViewTests(TestCase):
         assert "External Jira access is currently blocked" not in content
         assert "No cached Jira issues are available yet." not in content
 
+    def test_dashboard_surfaces_current_cache_alignment_status(self):
+        self.sync_scope.last_run_status = SyncScope.RunStatus.FAILED
+        self.sync_scope.last_error_message = "Required scope failure"
+        self.sync_scope.save(update_fields=["last_run_status", "last_error_message", "updated_at"])
+        policy = self.policy_version.policy
+        policy.status = GlobalSyncPolicy.Status.STALE
+        policy.save(update_fields=["status", "updated_at"])
+
+        response = self.client.get(reverse("jira_workspace:dashboard"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Cache Alignment" in content
+        assert "Stale" in content
+        assert "Required scope failure" in content
+
 
 class JiraWorkspaceSecondaryPagesTests(TestCase):
     def setUp(self):
@@ -395,6 +412,17 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert response.status_code == 200
         content = response.content.decode()
         assert "No cached Jira issues are available yet." in content
+
+    def test_query_page_surfaces_active_policy_ticket_freshness(self):
+        self.sync_scope.last_successful_check_at = datetime.now(timezone.utc)
+        self.sync_scope.save(update_fields=["last_successful_check_at", "updated_at"])
+
+        response = self.client.get(reverse("jira_workspace:query"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Current Policy Version" in content
+        assert "Last Successful Check" in content
 
     def test_query_page_can_persist_a_saved_query_from_editor_form(self):
         response = self.client.post(
@@ -1168,6 +1196,130 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert response.status_code == 302
         run_scope_incremental.assert_called_once()
         assert run_scope_incremental.call_args.args[0] == scope
+
+    @patch("jira_workspace.views.SyncService.run_scope_full")
+    def test_sync_post_can_run_scope_full(self, run_scope_full):
+        scope = self.sync_scope
+
+        response = self.client.post(
+            reverse("jira_workspace:sync"),
+            {"action": "run_scope_full", "scope_id": str(scope.id)},
+        )
+
+        assert response.status_code == 302
+        run_scope_full.assert_called_once()
+        assert run_scope_full.call_args.args[0] == scope
+
+    @patch("jira_workspace.views.SyncService.run_due_scopes")
+    def test_sync_post_can_run_due_scopes(self, run_due_scopes):
+        response = self.client.post(
+            reverse("jira_workspace:sync"),
+            {"action": "run_due_scopes"},
+        )
+
+        assert response.status_code == 302
+        run_due_scopes.assert_called_once()
+
+    def test_sync_page_renders_scope_sync_reports(self):
+        JiraScopeSyncReport.objects.create(
+            policy_version=self.policy_version,
+            scope=self.sync_scope,
+            run_type=JiraScopeSyncReport.RunType.FULL,
+            status=JiraScopeSyncReport.Status.SUCCESS,
+            started_at=datetime.now(timezone.utc),
+            finished_at=datetime.now(timezone.utc),
+            effective_jql=self.sync_scope.base_jql,
+            fetched_count=3,
+            inserted_count=1,
+            updated_count=1,
+            unchanged_checked_count=1,
+            deactivated_membership_count=2,
+            duration_ms=123,
+        )
+
+        response = self.client.get(reverse("jira_workspace:sync"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Scope Sync Reports" in content
+        assert "My Assigned or Reported Issues" in content
+        assert "Deactivated" in content
+        assert "123ms" in content
+
+    def test_sync_page_renders_policy_editor_and_scope_form(self):
+        response = self.client.get(reverse("jira_workspace:sync"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Policy Editor" in content
+        assert 'name="action" value="save_policy"' in content
+        assert 'name="action" value="add_scope"' in content
+        assert 'name="scope_type"' in content
+        assert "Add Scope" in content
+
+    def test_sync_post_can_save_global_policy(self):
+        policy = GlobalSyncPolicy.objects.get(name="Primary Jira Policy")
+
+        response = self.client.post(
+            reverse("jira_workspace:sync"),
+            {
+                "action": "save_policy",
+                "policy_id": str(policy.id),
+                "name": "Primary Jira Policy Renamed",
+            },
+        )
+
+        assert response.status_code == 302
+        policy.refresh_from_db()
+        assert policy.name == "Primary Jira Policy Renamed"
+
+    def test_sync_post_can_add_policy_scope_and_create_new_version(self):
+        policy = GlobalSyncPolicy.objects.get(name="Primary Jira Policy")
+        before_version_count = policy.versions.count()
+
+        response = self.client.post(
+            reverse("jira_workspace:sync"),
+            {
+                "action": "add_scope",
+                "policy_id": str(policy.id),
+                "scope_type": SyncScope.ScopeType.PROJECT,
+                "name": "OPS Project",
+                "schedule_minutes": "45",
+                "project_key": "OPS",
+            },
+        )
+
+        assert response.status_code == 302
+        policy.refresh_from_db()
+        assert policy.versions.count() == before_version_count + 1
+        assert policy.current_version.scopes.filter(
+            scope_type=SyncScope.ScopeType.PROJECT,
+            name="OPS Project",
+            config_json__project_key="OPS",
+        ).exists()
+
+    def test_sync_post_can_add_label_policy_scope(self):
+        policy = GlobalSyncPolicy.objects.get(name="Primary Jira Policy")
+
+        response = self.client.post(
+            reverse("jira_workspace:sync"),
+            {
+                "action": "add_scope",
+                "policy_id": str(policy.id),
+                "scope_type": SyncScope.ScopeType.LABEL,
+                "name": "Customer Impact",
+                "schedule_minutes": "30",
+                "label": "customer-impact",
+            },
+        )
+
+        assert response.status_code == 302
+        policy.refresh_from_db()
+        assert policy.current_version.scopes.filter(
+            scope_type=SyncScope.ScopeType.LABEL,
+            name="Customer Impact",
+            config_json__label="customer-impact",
+        ).exists()
 
     def test_sync_page_collapses_details_by_default(self):
         response = self.client.get(reverse("jira_workspace:sync"))
