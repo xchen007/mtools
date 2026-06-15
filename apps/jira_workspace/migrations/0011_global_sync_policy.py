@@ -107,6 +107,11 @@ class Migration(migrations.Migration):
             name="last_synced_success_at",
             field=models.DateTimeField(blank=True, null=True),
         ),
+        migrations.AlterField(
+            model_name="jiraissuesyncmembership",
+            name="issue",
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="profile_sync_memberships", to="jira_workspace.jiraissue"),
+        ),
         migrations.CreateModel(
             name="JiraIssueScopeMembership",
             fields=[
@@ -118,7 +123,7 @@ class Migration(migrations.Migration):
                 ("is_active", models.BooleanField(default=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
-                ("issue", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="scope_memberships", to="jira_workspace.jiraissue")),
+                ("issue", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="sync_memberships", to="jira_workspace.jiraissue")),
                 ("policy_version", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="issue_memberships", to="jira_workspace.globalsyncpolicyversion")),
                 ("scope", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="issue_memberships", to="jira_workspace.syncscope")),
             ],

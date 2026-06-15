@@ -6,7 +6,9 @@ from jira_workspace.models import (
     GlobalSyncPolicy,
     GlobalSyncPolicyVersion,
     JiraIssue,
+    JiraIssueSyncMembership,
     JiraIssueScopeMembership,
+    JiraSyncProfile,
     SyncScope,
 )
 
@@ -211,3 +213,70 @@ class JiraGlobalSyncPolicyModelTests(TestCase):
 
         with self.assertRaises(ValidationError):
             membership.save()
+
+    def test_issue_exposes_policy_memberships_as_canonical_sync_memberships(self):
+        policy = GlobalSyncPolicy.objects.create(
+            name="Primary Jira Policy",
+            strategy_json={"required_self": True, "scopes": []},
+            strategy_hash="hash-v1",
+            status=GlobalSyncPolicy.Status.READY,
+        )
+        version = GlobalSyncPolicyVersion.objects.create(
+            policy=policy,
+            version_no=1,
+            strategy_hash="hash-v1",
+            status=GlobalSyncPolicyVersion.Status.READY,
+            full_sync_required=False,
+        )
+        scope = SyncScope.objects.create(
+            policy_version=version,
+            scope_type=SyncScope.ScopeType.PROJECT,
+            name="OPS",
+            is_required=False,
+            is_enabled=True,
+            schedule_minutes=30,
+            config_json={"project_key": "OPS"},
+            base_jql='project = "OPS" ORDER BY updated DESC',
+            next_run_at=timezone.now(),
+        )
+        issue = JiraIssue.objects.create(
+            issue_key="OPS-780",
+            project_key="OPS",
+            summary="Canonical relation names",
+            status="Blocked",
+            assignee="xchen17",
+            reporter="amy",
+            priority="High",
+            updated_at=timezone.now(),
+            raw_json="{}",
+            last_seen_at=timezone.now(),
+            last_checked_at=timezone.now(),
+            last_synced_success_at=timezone.now(),
+            is_active_in_current_policy=True,
+            first_seen_policy_version_id=version.id,
+            last_seen_policy_version_id=version.id,
+        )
+        profile = JiraSyncProfile.objects.create(
+            name="Legacy Profile",
+            profile_type=JiraSyncProfile.ProfileType.PROJECT,
+            params_json={"project_key": "OPS"},
+            jql='project = "OPS" ORDER BY updated DESC',
+        )
+        policy_membership = JiraIssueScopeMembership.objects.create(
+            issue=issue,
+            scope=scope,
+            policy_version=version,
+            first_seen_at=timezone.now(),
+            last_checked_at=timezone.now(),
+            last_synced_success_at=timezone.now(),
+            last_seen_issue_updated_at=issue.updated_at,
+            is_active=True,
+        )
+        legacy_membership = JiraIssueSyncMembership.objects.create(
+            issue=issue,
+            profile=profile,
+            last_seen_at=timezone.now(),
+        )
+
+        assert issue.sync_memberships.get() == policy_membership
+        assert issue.profile_sync_memberships.get() == legacy_membership

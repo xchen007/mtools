@@ -235,7 +235,7 @@ class SyncScope(models.Model):
 
 class JiraIssueSyncMembership(models.Model):
     issue = models.ForeignKey(
-        JiraIssue, on_delete=models.CASCADE, related_name="sync_memberships"
+        JiraIssue, on_delete=models.CASCADE, related_name="profile_sync_memberships"
     )
     profile = models.ForeignKey(
         JiraSyncProfile, on_delete=models.CASCADE, related_name="issue_memberships"
@@ -255,7 +255,7 @@ class JiraIssueScopeMembership(models.Model):
     issue = models.ForeignKey(
         JiraIssue,
         on_delete=models.CASCADE,
-        related_name="scope_memberships",
+        related_name="sync_memberships",
     )
     scope = models.ForeignKey(
         SyncScope,

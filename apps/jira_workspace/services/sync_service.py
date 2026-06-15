@@ -241,7 +241,7 @@ class SyncService:
         if stale_issue_keys:
             JiraIssue.objects.filter(
                 issue_key__in=stale_issue_keys,
-                sync_memberships__isnull=True,
+                profile_sync_memberships__isnull=True,
             ).delete()
 
     @staticmethod
