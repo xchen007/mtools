@@ -1,7 +1,7 @@
 {% if shell_current_sections %}
   <nav class="tool-context-nav" aria-label="Current Tool">
     {% for item in shell_current_sections %}
-      <a class="tool-context-nav__link{% if item.active %} active{% endif %}" href="{{ item.href }}">
+      <a class="tool-context-nav__link{% if item.active %} active{% endif %}" href="{{ item.href }}"{% if item.active %} aria-current="page"{% endif %}>
         <span>{{ item.label }}</span>
       </a>
     {% endfor %}

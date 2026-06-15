@@ -19,6 +19,12 @@ class WorkspaceService:
         "sync2pod": {"sync2pod"},
         "integrations": {"integrations"},
     }
+    JIRA_SECTION_ROUTE_NAMES = {
+        "dashboard": {"dashboard"},
+        "query": {"query", "queries", "issues"},
+        "sync": {"sync"},
+        "profiles": {"profiles"},
+    }
 
     def build_shell_navigation(self, *, current_route_name):
         current_tool_key = self._current_tool_key(current_route_name)
@@ -250,7 +256,7 @@ class WorkspaceService:
                 "key": key,
                 "label": label,
                 "href": href,
-                "active": current_route_name == key,
+                "active": current_route_name in self.JIRA_SECTION_ROUTE_NAMES[key],
             }
             for key, label, href in items
         ]

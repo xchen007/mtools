@@ -196,6 +196,9 @@ class WorkspaceServiceTests(TestCase):
             "Profiles",
         ]
         assert next(
+            item for item in shell["current_sections"] if item["label"] == "Query"
+        )["active"] is True
+        assert next(
             item for item in shell["current_sections"] if item["label"] == "Dashboard"
         )["active"] is False
         assert [item["label"] for item in shell["starred_items"]] == [
@@ -228,6 +231,17 @@ class WorkspaceServiceTests(TestCase):
         )["active"] is True
         assert next(
             item for item in shell["current_sections"] if item["label"] == "Query"
+        )["active"] is False
+
+    def test_build_shell_navigation_marks_query_section_active_for_queries_alias(self):
+        shell = WorkspaceService().build_shell_navigation(current_route_name="queries")
+
+        assert shell["current_tool"]["key"] == "jira"
+        assert next(
+            item for item in shell["current_sections"] if item["label"] == "Query"
+        )["active"] is True
+        assert next(
+            item for item in shell["current_sections"] if item["label"] == "Sync"
         )["active"] is False
 
     def test_build_shell_navigation_only_expands_current_tool_sections(self):
