@@ -33,6 +33,23 @@ class JiraIssue(models.Model):
     created_at = models.DateTimeField(blank=True, null=True)
     raw_json = models.TextField()
     last_seen_at = models.DateTimeField()
+    last_checked_at = models.DateTimeField(blank=True, null=True)
+    last_synced_success_at = models.DateTimeField(blank=True, null=True)
+    is_active_in_current_policy = models.BooleanField(default=True)
+    first_seen_policy_version = models.ForeignKey(
+        "GlobalSyncPolicyVersion",
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    last_seen_policy_version = models.ForeignKey(
+        "GlobalSyncPolicyVersion",
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
 
     class Meta:
         ordering = ["-updated_at"]
@@ -101,6 +118,105 @@ class JiraSyncRun(models.Model):
     error_message = models.TextField(blank=True, null=True)
 
 
+class GlobalSyncPolicy(models.Model):
+    class Status(models.TextChoices):
+        READY = "ready", "Ready"
+        REBUILDING = "rebuilding", "Rebuilding"
+        PARTIAL = "partial", "Partial"
+        STALE = "stale", "Stale"
+
+    name = models.CharField(max_length=120, unique=True)
+    strategy_json = models.JSONField(default=dict, blank=True)
+    strategy_hash = models.CharField(max_length=64, db_index=True)
+    current_version = models.ForeignKey(
+        "GlobalSyncPolicyVersion",
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.STALE)
+    last_strategy_changed_at = models.DateTimeField(blank=True, null=True)
+    last_version_built_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class GlobalSyncPolicyVersion(models.Model):
+    class Status(models.TextChoices):
+        PENDING_FULL_SYNC = "pending_full_sync", "Pending Full Sync"
+        BUILDING = "building", "Building"
+        READY = "ready", "Ready"
+        PARTIAL_FAILED = "partial_failed", "Partial Failed"
+        STALE = "stale", "Stale"
+
+    policy = models.ForeignKey(GlobalSyncPolicy, on_delete=models.CASCADE, related_name="versions")
+    version_no = models.PositiveIntegerField()
+    strategy_hash = models.CharField(max_length=64, db_index=True)
+    status = models.CharField(
+        max_length=32,
+        choices=Status.choices,
+        default=Status.PENDING_FULL_SYNC,
+    )
+    full_sync_required = models.BooleanField(default=True)
+    full_sync_started_at = models.DateTimeField(blank=True, null=True)
+    full_sync_completed_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["policy", "version_no"],
+                name="jira_workspace_policy_version_unique",
+            ),
+        ]
+
+
+class SyncScope(models.Model):
+    class ScopeType(models.TextChoices):
+        SELF_REQUIRED = "self_required", "Self Required"
+        ASSIGNEE_USER = "assignee_user", "Assignee User"
+        REPORTER_USER = "reporter_user", "Reporter User"
+        PROJECT = "project", "Project"
+        LABEL = "label", "Label"
+        SPRINT = "sprint", "Sprint"
+        CUSTOM_JQL = "custom_jql", "Custom JQL"
+
+    class RunStatus(models.TextChoices):
+        IDLE = "idle", "Idle"
+        QUEUED_FULL = "queued_full", "Queued Full"
+        RUNNING_FULL = "running_full", "Running Full"
+        QUEUED_INCREMENTAL = "queued_incremental", "Queued Incremental"
+        RUNNING_INCREMENTAL = "running_incremental", "Running Incremental"
+        SUCCESS = "success", "Success"
+        FAILED = "failed", "Failed"
+        BLOCKED = "blocked", "Blocked"
+
+    policy_version = models.ForeignKey(
+        GlobalSyncPolicyVersion,
+        on_delete=models.CASCADE,
+        related_name="scopes",
+    )
+    scope_type = models.CharField(max_length=32, choices=ScopeType.choices)
+    name = models.CharField(max_length=120)
+    is_required = models.BooleanField(default=False)
+    is_enabled = models.BooleanField(default=True)
+    is_system_scope = models.BooleanField(default=False)
+    schedule_minutes = models.PositiveIntegerField(default=30)
+    config_json = models.JSONField(default=dict, blank=True)
+    base_jql = models.TextField()
+    effective_jql_last_run = models.TextField(blank=True, default="")
+    last_full_sync_at = models.DateTimeField(blank=True, null=True)
+    last_incremental_sync_at = models.DateTimeField(blank=True, null=True)
+    last_successful_check_at = models.DateTimeField(blank=True, null=True)
+    last_issue_updated_cursor = models.CharField(max_length=128, blank=True, null=True)
+    last_run_status = models.CharField(max_length=32, choices=RunStatus.choices, default=RunStatus.IDLE)
+    last_error_message = models.TextField(blank=True, default="")
+    next_run_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 class JiraIssueSyncMembership(models.Model):
     issue = models.ForeignKey(
         JiraIssue, on_delete=models.CASCADE, related_name="sync_memberships"
@@ -115,6 +231,39 @@ class JiraIssueSyncMembership(models.Model):
             models.UniqueConstraint(
                 fields=["issue", "profile"],
                 name="jira_workspace_unique_issue_profile_membership",
+            )
+        ]
+
+
+class JiraIssueScopeMembership(models.Model):
+    issue = models.ForeignKey(
+        JiraIssue,
+        on_delete=models.CASCADE,
+        related_name="scope_memberships",
+    )
+    scope = models.ForeignKey(
+        SyncScope,
+        on_delete=models.CASCADE,
+        related_name="issue_memberships",
+    )
+    policy_version = models.ForeignKey(
+        GlobalSyncPolicyVersion,
+        on_delete=models.CASCADE,
+        related_name="issue_memberships",
+    )
+    first_seen_at = models.DateTimeField()
+    last_checked_at = models.DateTimeField(blank=True, null=True)
+    last_synced_success_at = models.DateTimeField(blank=True, null=True)
+    last_seen_issue_updated_at = models.DateTimeField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["issue", "scope"],
+                name="jira_workspace_unique_issue_scope_membership",
             )
         ]
 
