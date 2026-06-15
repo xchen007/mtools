@@ -2375,3 +2375,10 @@ class JiraWorkspaceStylesheetTests(TestCase):
         assert 'data-sync-details-panel' in js
         assert 'sync-details__panel' in css
         assert 'initializeSyncRefresh();' in js
+
+    def test_tool_context_nav_styles_are_present(self):
+        css = Path(settings.BASE_DIR / "static/jira_workspace/jira.css").read_text()
+
+        assert ".tool-context-nav" in css
+        assert ".tool-context-nav__link" in css
+        assert ".tool-context-nav__link.active" in css
