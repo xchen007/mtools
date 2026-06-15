@@ -495,6 +495,17 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert "Card type" in content
         assert "Query syntax" in content
 
+    def test_query_page_renders_open_jira_sync_shortcut(self):
+        response = self.client.get(reverse("jira_workspace:query"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        header = content.split('<header class="query-card-header">', 1)[1].split("</header>", 1)[0]
+
+        assert "Open Jira Sync" in header
+        assert f'href="{reverse("jira_workspace:sync")}"' in header
+        assert "Run now" in header
+
     def test_query_summary_metrics_render_inside_results_header(self):
         selected = JiraSavedQuery.objects.get(name="Team Review Queue")
 
