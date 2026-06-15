@@ -158,11 +158,7 @@ class WorkspaceService:
         )[:10]
 
     def _build_health_items(self, *, sync2pod_capability=None):
-        latest_jira_failure = (
-            JiraSyncRun.objects.filter(status=JiraSyncRun.Status.FAILED)
-            .order_by("-started_at")
-            .first()
-        )
+        latest_jira_run = JiraSyncRun.objects.order_by("-started_at").first()
         if sync2pod_capability is None:
             sync2pod_capability = Sync2PodService().check_capabilities()
         latest_sync2pod_failure = (
@@ -178,7 +174,11 @@ class WorkspaceService:
         return [
             {
                 "label": "Jira",
-                "value": "blocked" if latest_jira_failure else "ok",
+                "value": (
+                    "blocked"
+                    if latest_jira_run and latest_jira_run.status == JiraSyncRun.Status.FAILED
+                    else "ok"
+                ),
             },
             {
                 "label": "sync2pod",

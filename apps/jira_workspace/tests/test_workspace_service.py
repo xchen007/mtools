@@ -118,6 +118,26 @@ class WorkspaceServiceTests(TestCase):
             "icon": "I",
         }
 
+    def test_build_rail_sections_uses_latest_jira_run_status_not_any_historical_failure(self):
+        jira_profile = JiraSyncProfile.objects.get(name="My Issues")
+        JiraSyncRun.objects.create(
+            profile=jira_profile,
+            run_type=JiraSyncRun.RunType.FULL,
+            status=JiraSyncRun.Status.FAILED,
+            started_at=timezone.now() - timedelta(minutes=30),
+            finished_at=timezone.now() - timedelta(minutes=29),
+            error_message="older failure",
+        )
+
+        sections = WorkspaceService().build_rail_sections()
+
+        assert sections[0]["items"][0] == {
+            "label": "Jira",
+            "value": "2 runs",
+            "status": "ok",
+            "icon": "J",
+        }
+
     @patch(
         "jira_workspace.services.sync2pod_service.Sync2PodService.check_capabilities",
         return_value={
