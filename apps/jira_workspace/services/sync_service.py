@@ -1,11 +1,12 @@
 import hashlib
 import json
 import re
+import threading
 from dataclasses import dataclass
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import transaction
+from django.db import close_old_connections, transaction
 from django.utils import timezone
 
 from jira_workspace.models import (
@@ -29,6 +30,10 @@ class SyncResult:
     skipped_count: int = 0
     unchanged_checked_count: int = 0
     deactivated_membership_count: int = 0
+
+
+class ActiveFullSyncError(Exception):
+    """Raised when a Jira full sync already owns the Jira sync queue."""
 
 
 class SyncService:
@@ -95,6 +100,54 @@ class SyncService:
             updated_since=profile.last_cursor,
         )
 
+    def enqueue_sync(self, profile, run_type, *, start_background=True):
+        if self._has_active_full_sync():
+            raise ActiveFullSyncError(
+                "A Jira full sync is already queued or running. "
+                "Wait for it to finish before starting another Jira sync task."
+            )
+        run = JiraSyncRun.objects.create(
+            profile=profile,
+            run_type=run_type,
+            status=JiraSyncRun.Status.QUEUED,
+            started_at=timezone.now(),
+        )
+        if start_background:
+            thread = threading.Thread(
+                target=self._run_queued_sync,
+                args=(run.id,),
+                daemon=True,
+            )
+            thread.start()
+        return run
+
+    @staticmethod
+    def _has_active_full_sync():
+        return JiraSyncRun.objects.filter(
+            run_type=JiraSyncRun.RunType.FULL,
+            status__in=[JiraSyncRun.Status.QUEUED, JiraSyncRun.Status.RUNNING],
+        ).exists()
+
+    @staticmethod
+    def _run_queued_sync(run_id):
+        close_old_connections()
+        try:
+            run = JiraSyncRun.objects.select_related("profile").get(pk=run_id)
+            profile = run.profile
+            updated_since = (
+                profile.last_cursor
+                if run.run_type == JiraSyncRun.RunType.INCREMENTAL
+                else None
+            )
+            SyncService()._sync(
+                profile=profile,
+                run_type=run.run_type,
+                updated_since=updated_since,
+                run=run,
+            )
+        finally:
+            close_old_connections()
+
     def build_sync_status(self):
         recent_runs = list(
             JiraSyncRun.objects.select_related("profile").order_by("-started_at")[:20]
@@ -140,14 +193,18 @@ class SyncService:
 
         raise ValueError(f"Unsupported profile type '{profile.profile_type}'.")
 
-    def _sync(self, *, profile, run_type, updated_since=None):
+    def _sync(self, *, profile, run_type, updated_since=None, run=None):
         started_at = timezone.now()
-        run = JiraSyncRun.objects.create(
-            profile=profile,
-            run_type=run_type,
-            status=JiraSyncRun.Status.RUNNING,
-            started_at=started_at,
-        )
+        if run is None:
+            run = JiraSyncRun.objects.create(
+                profile=profile,
+                run_type=run_type,
+                status=JiraSyncRun.Status.RUNNING,
+                started_at=started_at,
+            )
+        else:
+            run.status = JiraSyncRun.Status.RUNNING
+            run.save(update_fields=["status"])
 
         try:
             self._refresh_profile_identity(profile)

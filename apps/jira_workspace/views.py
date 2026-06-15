@@ -2,6 +2,7 @@ from pathlib import Path
 from datetime import timedelta
 
 from django.conf import settings
+from django.contrib import messages
 from django.db.models import Max
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -37,7 +38,7 @@ from jira_workspace.services.stats_service import (
     build_dashboard_summary,
 )
 from jira_workspace.services.star_service import StarService
-from jira_workspace.services.sync_service import SyncService
+from jira_workspace.services.sync_service import ActiveFullSyncError, SyncService
 from jira_workspace.services.sync2pod_service import Sync2PodService
 from jira_workspace.services.workspace_service import WorkspaceService
 
@@ -338,12 +339,19 @@ def sync(request):
             profile = get_object_or_404(JiraSyncProfile, pk=request.POST.get("profile_id"))
             run_type = request.POST.get("run_type")
             try:
-                if run_type == JiraSyncRun.RunType.FULL:
-                    sync_service.full_sync(profile)
-                else:
-                    sync_service.incremental_sync(profile)
+                if run_type not in {
+                    JiraSyncRun.RunType.FULL,
+                    JiraSyncRun.RunType.INCREMENTAL,
+                }:
+                    run_type = JiraSyncRun.RunType.INCREMENTAL
+                sync_service.enqueue_sync(profile, run_type)
+            except ActiveFullSyncError as exc:
+                messages.error(request, str(exc))
             except Exception:
-                pass
+                messages.error(
+                    request,
+                    "Unable to start the Jira sync task right now.",
+                )
             return redirect(f"{reverse('jira_workspace:sync')}?profile={profile.id}")
 
     profiles_qs = JiraSyncProfile.objects.order_by("-is_default", "name")
@@ -364,10 +372,12 @@ def sync(request):
         )
 
     sync_status = sync_service.build_sync_status()
+    has_active_full_sync = sync_service._has_active_full_sync()
     context = {
         "profiles": profiles,
         "sync_runs": sync_status["recent_runs"],
         "latest_failed_run": sync_status["latest_failure"],
+        "has_active_full_sync": has_active_full_sync,
         "jira_blocker_message": sync_status["blocker_message"],
         "has_external_blocker": sync_status["has_external_blocker"],
         "profile_form": profile_form,

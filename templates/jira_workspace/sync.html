@@ -3,7 +3,7 @@
 {% block title %}Jira Sync | mtools{% endblock %}
 
 {% block content %}
-<section class="page-section">
+<section class="page-section sync-command-center-page" data-sync-refresh="{% if has_active_sync %}active{% else %}idle{% endif %}">
   <div class="page-header">
     <div>
       <h1 class="page-title">Jira Sync</h1>
@@ -12,157 +12,273 @@
     {% include "jira_workspace/partials/star_button.html" with star=page_star %}
   </div>
 
-  <div class="dashboard-grid dashboard-grid--main-first">
+  <div class="sync-command-center">
+    {% if global_policy %}
     <section class="panel">
       <div class="panel__header">
-        <h2 class="section-title">Run Configuration Presets</h2>
-        <span class="status-pill status-pill--neutral">{{ profiles|length }} profiles</span>
+        <h2 class="section-title">Global Sync Policy</h2>
+        <span class="status-pill status-pill--{% if global_policy.status == 'ready' %}success{% elif global_policy.status == 'rebuilding' %}neutral{% else %}failed{% endif %}">{{ global_policy.get_status_display }}</span>
       </div>
-      <div class="profile-list">
-        {% for profile in profiles %}
+      <dl class="meta-grid">
+        <div>
+          <dt>Current Policy Version</dt>
+          <dd>v{{ global_policy.current_version.version_no|default:"—" }}</dd>
+        </div>
+        <div>
+          <dt>Strategy Hash</dt>
+          <dd class="meta-grid__code">{{ global_policy.strategy_hash|truncatechars:12 }}</dd>
+        </div>
+      </dl>
+      <div class="toolbar toolbar--actions">
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="rebuild_policy">
+          <input type="hidden" name="policy_id" value="{{ global_policy.id }}">
+          <button type="submit">Force Rebuild</button>
+        </form>
+      </div>
+      {% if policy_scopes %}
+        <div class="sync-scope-cards">
+          <h3 class="section-subtitle">Required Scopes</h3>
+          {% for scope in policy_scopes %}
+            {% if scope.is_required %}
+            <article class="profile-card">
+              <div class="profile-card__header">
+                <h4 class="profile-card__title">{{ scope.name }}</h4>
+                <span class="status-pill status-pill--{% if scope.last_run_status == 'success' %}success{% elif scope.last_run_status == 'failed' %}failed{% else %}neutral{% endif %}">{{ scope.last_run_status|default:"pending" }}</span>
+              </div>
+              <div class="toolbar toolbar--actions">
+                <form method="post">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="run_scope_incremental">
+                  <input type="hidden" name="scope_id" value="{{ scope.id }}">
+                  <button type="submit">Run Incremental</button>
+                </form>
+              </div>
+            </article>
+            {% endif %}
+          {% endfor %}
+          <h3 class="section-subtitle">Run Due Scopes</h3>
+          {% for scope in policy_scopes %}
+            {% if not scope.is_required %}
+            <article class="profile-card">
+              <div class="profile-card__header">
+                <h4 class="profile-card__title">{{ scope.name }}</h4>
+                <span class="status-pill status-pill--neutral">{{ scope.last_run_status|default:"pending" }}</span>
+              </div>
+            </article>
+            {% endif %}
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    <div class="dashboard-grid dashboard-grid--main-first">
+      <section class="panel">
+        <div class="panel__header">
+          <h2 class="section-title">Current Profile</h2>
+          <span class="status-pill status-pill--neutral">{{ profiles|length }} profiles</span>
+        </div>
+        {% if selected_profile %}
           <article class="profile-card">
             <div class="profile-card__header">
               <h3 class="profile-card__title">
-                <a href="?profile={{ profile.id }}">{{ profile.name }}</a>
+                <a href="?profile={{ selected_profile.id }}">{{ selected_profile.name }}</a>
               </h3>
               <div class="query-card__flags">
-                {% if profile.is_default %}
+                {% if selected_profile.is_default %}
                   <span class="status-pill status-pill--neutral">Default</span>
                 {% endif %}
-                {% include "jira_workspace/partials/star_button.html" with star=profile.star %}
+                {% include "jira_workspace/partials/star_button.html" with star=selected_profile.star %}
               </div>
             </div>
             <dl class="meta-grid">
               <div>
                 <dt>Type</dt>
-                <dd>{{ profile.get_profile_type_display|default:profile.profile_type }}</dd>
+                <dd>{{ selected_profile.get_profile_type_display|default:selected_profile.profile_type }}</dd>
               </div>
               <div>
                 <dt>Last Cursor</dt>
-                <dd class="meta-grid__code">{{ profile.last_cursor|default:"-" }}</dd>
+                <dd class="meta-grid__code">{{ selected_profile.last_cursor|default:"-" }}</dd>
               </div>
             </dl>
           </article>
-        {% empty %}
+        {% else %}
           <p class="empty-state">No sync profiles configured yet.</p>
-        {% endfor %}
-      </div>
-    </section>
-
-    <aside class="dashboard-sidebar">
-      <section class="panel panel--tight">
-        <div class="panel__header">
-          <h2 class="section-title">Sync Run Timeline</h2>
-        </div>
-        {% if has_external_blocker %}
-          <article class="recent-item">
-            <div class="recent-item__top">
-              <span class="issue-key">External Jira access is currently blocked</span>
-              <span class="issue-status">403</span>
-            </div>
-            <div class="recent-item__summary">{{ latest_failed_run.error_message }}</div>
-          </article>
         {% endif %}
-        <div class="recent-list">
-          {% for run in sync_runs|slice:":5" %}
+      </section>
+
+      <aside class="dashboard-sidebar">
+        <section class="panel panel--tight">
+          <div class="panel__header">
+            <h2 class="section-title">Sync Controls</h2>
+          </div>
+          <form method="post" class="config-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="run_sync">
+            <div class="toolbar">
+              <select name="profile_id" required>
+                {% for profile in profiles %}
+                  <option value="{{ profile.id }}"{% if selected_profile and selected_profile.id == profile.id %} selected{% endif %}>{{ profile.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="toolbar toolbar--actions">
+              <button type="submit" name="run_type" value="incremental" {% if not profiles %}disabled{% endif %}>Run Incremental</button>
+              <button type="submit" name="run_type" value="full" {% if not profiles %}disabled{% endif %}>Run Full</button>
+            </div>
+          </form>
+        </section>
+      </aside>
+    </div>
+
+    <div class="dashboard-grid dashboard-grid--main-first">
+      <section class="panel">
+        <div class="panel__header">
+          <h2 class="section-title">Latest Status</h2>
+          {% if has_external_blocker %}
+            <span class="status-pill status-pill--failed">{{ jira_blocker_message }}</span>
+          {% elif has_active_sync %}
+            <span class="status-pill status-pill--neutral">Active</span>
+          {% else %}
+            <span class="status-pill status-pill--success">Ready</span>
+          {% endif %}
+        </div>
+        {% with latest_run=sync_runs|first %}
+          {% if latest_run %}
             <article class="recent-item">
               <div class="recent-item__top">
-                <span class="issue-key">{{ run.profile.name }}</span>
-                <span class="issue-status">{{ run.status }}</span>
+                <span class="issue-key">{{ latest_run.get_run_type_display }}</span>
+                <span class="issue-status">{{ latest_run.status }}</span>
               </div>
-              <div class="recent-item__summary">{{ run.get_run_type_display }} run with {{ run.fetched_count }} fetched.</div>
+              <div class="recent-item__summary">
+                {{ latest_run.progress_message|default:latest_run.error_message|default:"No summary recorded." }}
+              </div>
+              {% if latest_run.status == "queued" or latest_run.status == "running" %}
+                <div class="sync-progress">
+                  <div class="sync-progress__bar" role="progressbar" aria-valuemin="0" aria-valuemax="{{ latest_run.progress_total_count|default:100 }}" aria-valuenow="{{ latest_run.progress_current_count|default:0 }}">
+                    <span class="sync-progress__fill" style="width: {{ latest_run.progress_percent }}%;"></span>
+                  </div>
+                </div>
+              {% endif %}
             </article>
-          {% empty %}
+            {% if has_active_full_sync %}
+              <p class="empty-state">A Jira full sync is already queued or running. Wait for it to finish before starting another Jira sync task.</p>
+            {% endif %}
+          {% elif has_external_blocker %}
+            <article class="recent-item">
+              <div class="recent-item__top">
+                <span class="issue-key">External Jira access is currently blocked</span>
+                <span class="issue-status">403</span>
+              </div>
+              <div class="recent-item__summary">{{ latest_failed_run.error_message }}</div>
+            </article>
+          {% else %}
             <p class="empty-state">No sync runs recorded yet.</p>
-          {% endfor %}
-        </div>
+          {% endif %}
+        {% endwith %}
       </section>
-    </aside>
-  </div>
 
-  <div class="dashboard-grid dashboard-grid--main-first">
+      <aside class="dashboard-sidebar">
+        <section class="panel panel--tight">
+          <div class="panel__header">
+            <h2 class="section-title">Recent Runs Summary</h2>
+          </div>
+          <div class="recent-list" data-sync-summary-runs>
+            {% for run in sync_runs|slice:":5" %}
+              <article class="recent-item" data-sync-summary-run-item>
+                <div class="recent-item__top">
+                  <span class="issue-key">{{ run.profile.name }}</span>
+                  <span class="issue-status">{{ run.status }}</span>
+                </div>
+                <div class="recent-item__summary">
+                  {{ run.progress_message|default:run.get_run_type_display }}
+                  {% if not run.progress_message %}
+                    run with {{ run.fetched_count }} fetched.
+                  {% endif %}
+                </div>
+              </article>
+            {% empty %}
+              <p class="empty-state">No sync runs recorded yet.</p>
+            {% endfor %}
+          </div>
+        </section>
+        <section class="panel panel--tight">
+          <div class="panel__header">
+            <h2 class="section-title">Recent Logs Summary</h2>
+          </div>
+          {% include "jira_workspace/partials/operation_log_list.html" with operation_logs=recent_operation_logs %}
+        </section>
+      </aside>
+    </div>
+
     <section class="panel">
       <div class="panel__header">
-        <h2 class="section-title">Profile Editor</h2>
-        <span class="status-pill status-pill--neutral">{{ selected_profile.name|default:"New Profile" }}</span>
+        <h2 class="section-title">Details</h2>
       </div>
-      <form method="post" class="config-form" autocomplete="off">
-        {% csrf_token %}
-        <input type="hidden" name="action" value="save_profile">
-        {% if selected_profile %}
-          <input type="hidden" name="profile_id" value="{{ selected_profile.id }}">
-        {% endif %}
-        <div class="form-grid">
-          <label>
-            <span>Name</span>
-            <input type="text" name="name" value="{{ profile_form.name.value|default:'' }}" required>
-          </label>
-          <label>
-            <span>Profile Type</span>
-            <select name="profile_type" required>
-              {% for value, label in profile_form.fields.profile_type.choices %}
-                <option value="{{ value }}"{% if profile_form.profile_type.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
-              {% endfor %}
-            </select>
-          </label>
-          <label>
-            <span>Username</span>
-            <input type="text" name="username" value="{{ profile_form.username.value|default:'' }}" placeholder="xchen17">
-          </label>
-          <label>
-            <span>Project Key</span>
-            <input type="text" name="project_key" value="{{ profile_form.project_key.value|default:'' }}" placeholder="OPS">
-          </label>
-          <label>
-            <span>Custom JQL</span>
-            <input type="text" name="custom_jql" value="{{ profile_form.custom_jql.value|default:'' }}" placeholder='project = "OPS" AND status = "Blocked"'>
-          </label>
-          <label class="checkbox-row">
-            <input type="checkbox" name="is_default" {% if profile_form.is_default.value %}checked{% endif %}>
-            <span>Default Profile</span>
-          </label>
-        </div>
-        <div class="toolbar toolbar--actions">
-          <button type="submit">Save Profile</button>
-        </div>
-      </form>
-    </section>
+      <div class="toolbar toolbar--actions">
+        <button type="button" data-sync-details-toggle="history">Run History</button>
+        <button type="button" data-sync-details-toggle="profile">Profile Editor</button>
+      </div>
 
-    <aside class="dashboard-sidebar">
-      <section class="panel panel--tight">
+      <section class="panel panel--tight" data-sync-details-panel="history" hidden>
         <div class="panel__header">
-          <h2 class="section-title">Sync Controls</h2>
+          <h3 class="section-title">Recent Sync Runs</h3>
+          {% if has_external_blocker %}
+            <span class="status-pill status-pill--failed">{{ jira_blocker_message }}</span>
+          {% endif %}
         </div>
-        <form method="post" class="config-form">
+        {% include "jira_workspace/partials/sync_runs.html" with sync_runs=sync_runs %}
+      </section>
+
+      <section class="panel panel--tight" data-sync-details-panel="profile" hidden>
+        <div class="panel__header">
+          <h3 class="section-title">Profile Editor</h3>
+          <span class="status-pill status-pill--neutral">{{ selected_profile.name|default:"New Profile" }}</span>
+        </div>
+        <form method="post" class="config-form" autocomplete="off">
           {% csrf_token %}
-          <input type="hidden" name="action" value="run_sync">
-          <div class="toolbar">
-            <select name="profile_id" required>
-              {% for profile in profiles %}
-                <option value="{{ profile.id }}"{% if selected_profile and selected_profile.id == profile.id %} selected{% endif %}>{{ profile.name }}</option>
-              {% endfor %}
-            </select>
+          <input type="hidden" name="action" value="save_profile">
+          {% if selected_profile %}
+            <input type="hidden" name="profile_id" value="{{ selected_profile.id }}">
+          {% endif %}
+          <div class="form-grid">
+            <label>
+              <span>Name</span>
+              <input type="text" name="name" value="{{ profile_form.name.value|default:'' }}" required>
+            </label>
+            <label>
+              <span>Profile Type</span>
+              <select name="profile_type" required>
+                {% for value, label in profile_form.fields.profile_type.choices %}
+                  <option value="{{ value }}"{% if profile_form.profile_type.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              <span>Username</span>
+              <input type="text" name="username" value="{{ profile_form.username.value|default:'' }}" placeholder="xchen17">
+            </label>
+            <label>
+              <span>Project Key</span>
+              <input type="text" name="project_key" value="{{ profile_form.project_key.value|default:'' }}" placeholder="OPS">
+            </label>
+            <label>
+              <span>Custom JQL</span>
+              <input type="text" name="custom_jql" value="{{ profile_form.custom_jql.value|default:'' }}" placeholder='project = "OPS" AND status = "Blocked"'>
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" name="is_default" {% if profile_form.is_default.value %}checked{% endif %}>
+              <span>Default Profile</span>
+            </label>
           </div>
           <div class="toolbar toolbar--actions">
-            <button type="submit" name="run_type" value="incremental" {% if not profiles %}disabled{% endif %}>Run Incremental</button>
-            <button type="submit" name="run_type" value="full" {% if not profiles %}disabled{% endif %}>Run Full</button>
+            <button type="submit">Save Profile</button>
           </div>
         </form>
-        {% if has_external_blocker %}
-          <p class="empty-state">{{ jira_blocker_message }}</p>
-        {% endif %}
       </section>
-    </aside>
+    </section>
   </div>
-
-  <section class="panel">
-    <div class="panel__header">
-      <h2 class="section-title">Recent Sync Runs</h2>
-      {% if has_external_blocker %}
-        <span class="status-pill status-pill--failed">{{ jira_blocker_message }}</span>
-      {% endif %}
-    </div>
-    {% include "jira_workspace/partials/sync_runs.html" with sync_runs=sync_runs %}
-  </section>
 </section>
 {% endblock %}

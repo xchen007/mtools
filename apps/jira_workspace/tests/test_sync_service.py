@@ -17,7 +17,7 @@ from jira_workspace.models import (
     SyncScope,
     SyncScope,
 )
-from jira_workspace.services.sync_service import SyncService
+from jira_workspace.services.sync_service import ActiveFullSyncError, SyncService
 
 
 def build_issue_payload(*, key, updated_at, summary="Summary", status="To Do"):
@@ -750,6 +750,66 @@ class JiraWorkspaceSyncServiceTests(TestCase):
         assert run.finished_at is not None
         assert run.fetched_count == 1
         assert profile.last_full_sync_at is not None
+
+    def test_enqueue_sync_creates_queued_run_without_executing_immediately(self):
+        profile = JiraSyncProfile.objects.create(
+            name="Project TESS",
+            profile_type=JiraSyncProfile.ProfileType.PROJECT,
+            params_json={"project_key": "TESS"},
+            jql="",
+        )
+
+        run = self.service.enqueue_sync(
+            profile,
+            JiraSyncRun.RunType.FULL,
+            start_background=False,
+        )
+
+        assert run.status == JiraSyncRun.Status.QUEUED
+        assert run.run_type == JiraSyncRun.RunType.FULL
+        self.adapter.fetch_issues.assert_not_called()
+
+    def test_enqueue_sync_rejects_incremental_when_full_run_is_queued(self):
+        profile = JiraSyncProfile.objects.create(
+            name="Project TESS",
+            profile_type=JiraSyncProfile.ProfileType.PROJECT,
+            params_json={"project_key": "TESS"},
+            jql="",
+        )
+        JiraSyncRun.objects.create(
+            profile=profile,
+            run_type=JiraSyncRun.RunType.FULL,
+            status=JiraSyncRun.Status.QUEUED,
+            started_at=datetime.now(timezone.utc),
+        )
+
+        with self.assertRaises(ActiveFullSyncError):
+            self.service.enqueue_sync(
+                profile,
+                JiraSyncRun.RunType.INCREMENTAL,
+                start_background=False,
+            )
+
+    def test_enqueue_sync_rejects_full_when_another_full_run_is_running(self):
+        profile = JiraSyncProfile.objects.create(
+            name="Project TESS",
+            profile_type=JiraSyncProfile.ProfileType.PROJECT,
+            params_json={"project_key": "TESS"},
+            jql="",
+        )
+        JiraSyncRun.objects.create(
+            profile=profile,
+            run_type=JiraSyncRun.RunType.FULL,
+            status=JiraSyncRun.Status.RUNNING,
+            started_at=datetime.now(timezone.utc),
+        )
+
+        with self.assertRaises(ActiveFullSyncError):
+            self.service.enqueue_sync(
+                profile,
+                JiraSyncRun.RunType.FULL,
+                start_background=False,
+            )
 
     def test_sync_status_reports_external_blocker_for_403_failure(self):
         profile = JiraSyncProfile.objects.create(

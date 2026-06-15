@@ -11,21 +11,73 @@ from jira_workspace.models import (
     IntegrationContract,
     IntegrationScanRun,
     IntegrationTool,
+    JiraConnection,
     JiraIssue,
+    JiraIssueScopeMembership,
+    OperationLog,
+    GlobalSyncPolicy,
+    GlobalSyncPolicyVersion,
     JiraSavedQuery,
     JiraSyncProfile,
     JiraSyncRun,
+    SyncScope,
     Sync2PodProfile,
     Sync2PodRun,
     Sync2PodWatchEvent,
     WorkspaceStar,
 )
+from jira_workspace.services.sync_service import ActiveFullSyncError
+
+
+def create_current_policy_scope():
+    policy = GlobalSyncPolicy.objects.create(
+        name="Primary Jira Policy",
+        strategy_json={"required_self": True, "scopes": []},
+        strategy_hash="hash-v1",
+        status=GlobalSyncPolicy.Status.READY,
+    )
+    version = GlobalSyncPolicyVersion.objects.create(
+        policy=policy,
+        version_no=1,
+        strategy_hash="hash-v1",
+        status=GlobalSyncPolicyVersion.Status.READY,
+        full_sync_required=False,
+    )
+    policy.current_version = version
+    policy.save(update_fields=["current_version", "updated_at"])
+    scope = SyncScope.objects.create(
+        policy_version=version,
+        scope_type=SyncScope.ScopeType.SELF_REQUIRED,
+        name="My Assigned or Reported Issues",
+        is_required=True,
+        is_enabled=True,
+        is_system_scope=True,
+        schedule_minutes=30,
+        config_json={"mode": "self"},
+        base_jql="assignee = currentUser() OR reporter = currentUser()",
+        next_run_at=datetime.now(timezone.utc),
+    )
+    return version, scope
+
+
+def add_policy_membership(*, issue, version, scope):
+    JiraIssueScopeMembership.objects.create(
+        issue=issue,
+        scope=scope,
+        policy_version=version,
+        first_seen_at=datetime.now(timezone.utc),
+        last_checked_at=datetime.now(timezone.utc),
+        last_synced_success_at=datetime.now(timezone.utc),
+        last_seen_issue_updated_at=issue.updated_at,
+        is_active=True,
+    )
 
 
 class JiraWorkspaceDashboardViewTests(TestCase):
     def setUp(self):
         self.now = datetime.now(timezone.utc)
-        JiraIssue.objects.create(
+        self.policy_version, self.sync_scope = create_current_policy_scope()
+        assigned_issue = JiraIssue.objects.create(
             issue_key="TESS-321",
             project_key="TESS",
             summary="Refine query presets",
@@ -38,7 +90,7 @@ class JiraWorkspaceDashboardViewTests(TestCase):
             raw_json="{}",
             last_seen_at=self.now,
         )
-        JiraIssue.objects.create(
+        created_issue = JiraIssue.objects.create(
             issue_key="OPS-778",
             project_key="OPS",
             summary="Created issue",
@@ -51,6 +103,12 @@ class JiraWorkspaceDashboardViewTests(TestCase):
             raw_json="{}",
             last_seen_at=self.now,
         )
+        for issue in [assigned_issue, created_issue]:
+            add_policy_membership(
+                issue=issue,
+                version=self.policy_version,
+                scope=self.sync_scope,
+            )
 
     def test_dashboard_renders_recent_assigned_and_created_ticket_table_without_default_detail(self):
         response = self.client.get(reverse("jira_workspace:dashboard"))
@@ -103,6 +161,12 @@ class JiraWorkspaceDashboardViewTests(TestCase):
         assert 'data-ticket-drawer-tab="activity"' in content
 
     def test_dashboard_ticket_table_partial_filters_assigned_project(self):
+        JiraConnection.objects.create(
+            base_url="https://jirap-cli.corp.ebay.com",
+            api_token="token-123",
+            auth_type=JiraConnection.AuthType.BEARER,
+        )
+
         response = self.client.get(
             reverse("jira_workspace:dashboard_ticket_table"),
             {"source": "assigned", "project": "TESS"},
@@ -112,6 +176,7 @@ class JiraWorkspaceDashboardViewTests(TestCase):
         content = response.content.decode()
         assert "TESS-321" in content
         assert "OPS-778" not in content
+        assert 'data-rich-table-ticket-browse-base-url="https://jirap.corp.ebay.com"' in content
 
     def test_live_state_endpoint_reports_asset_and_data_versions(self):
         response = self.client.get(reverse("jira_workspace:live_state"))
@@ -159,9 +224,54 @@ class JiraWorkspaceDashboardViewTests(TestCase):
         assert "External Jira access is currently blocked" in content
         assert "No cached Jira issues are available yet." in content
 
+    def test_dashboard_does_not_treat_out_of_range_active_cache_as_empty(self):
+        JiraIssueScopeMembership.objects.update(is_active=False)
+        old_issue = JiraIssue.objects.create(
+            issue_key="OLD-100",
+            project_key="OLD",
+            summary="Older active cache",
+            status="Done",
+            assignee="xchen17",
+            reporter="amy",
+            priority="Low",
+            updated_at=self.now - timedelta(days=30),
+            created_at=self.now - timedelta(days=31),
+            raw_json="{}",
+            last_seen_at=self.now,
+            is_active_in_current_policy=True,
+        )
+        add_policy_membership(
+            issue=old_issue,
+            version=self.policy_version,
+            scope=self.sync_scope,
+        )
+        profile = JiraSyncProfile.objects.create(
+            name="My Issues",
+            profile_type=JiraSyncProfile.ProfileType.MY_ISSUES,
+            params_json={"username": "xchen17"},
+            jql="assignee = currentUser() ORDER BY updated DESC",
+            is_default=True,
+        )
+        JiraSyncRun.objects.create(
+            profile=profile,
+            run_type=JiraSyncRun.RunType.FULL,
+            status=JiraSyncRun.Status.FAILED,
+            started_at=self.now - timedelta(minutes=10),
+            finished_at=self.now - timedelta(minutes=9),
+            error_message="Jira returned 403: The request is blocked.",
+        )
+
+        response = self.client.get(reverse("jira_workspace:dashboard"), {"range": "7d"})
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "External Jira access is currently blocked" not in content
+        assert "No cached Jira issues are available yet." not in content
+
 
 class JiraWorkspaceSecondaryPagesTests(TestCase):
     def setUp(self):
+        self.policy_version, self.sync_scope = create_current_policy_scope()
         self.profile = JiraSyncProfile.objects.create(
             name="My Issues",
             profile_type=JiraSyncProfile.ProfileType.MY_ISSUES,
@@ -186,7 +296,7 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
             sort_by="priority",
             sort_order="asc",
         )
-        JiraIssue.objects.create(
+        review_issue = JiraIssue.objects.create(
             issue_key="TESS-321",
             project_key="TESS",
             summary="Refine query presets",
@@ -202,7 +312,7 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
             raw_json="{}",
             last_seen_at=datetime.now(timezone.utc),
         )
-        JiraIssue.objects.create(
+        blocker_issue = JiraIssue.objects.create(
             issue_key="OPS-778",
             project_key="OPS",
             summary="Escalate blocker handling",
@@ -218,6 +328,12 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
             raw_json="{}",
             last_seen_at=datetime.now(timezone.utc),
         )
+        for issue in [review_issue, blocker_issue]:
+            add_policy_membership(
+                issue=issue,
+                version=self.policy_version,
+                scope=self.sync_scope,
+            )
         JiraSyncRun.objects.create(
             profile=self.profile,
             run_type=JiraSyncRun.RunType.INCREMENTAL,
@@ -257,6 +373,27 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert "Query Results" in content
         assert "OPS-778" in content
         assert "TESS-321" not in content
+
+    def test_query_page_surfaces_empty_cache_state_instead_of_silent_zero_results(self):
+        JiraIssue.objects.all().delete()
+
+        response = self.client.get(reverse("jira_workspace:query"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Jira Data Status" in content
+        assert "No cached Jira issues are available yet." in content
+        assert "External Jira access is currently blocked" in content
+        assert "Jira returned 403: The request is blocked." in content
+
+    def test_query_page_treats_inactive_only_policy_cache_as_empty(self):
+        JiraIssueScopeMembership.objects.update(is_active=False)
+
+        response = self.client.get(reverse("jira_workspace:query"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "No cached Jira issues are available yet." in content
 
     def test_query_page_can_persist_a_saved_query_from_editor_form(self):
         response = self.client.post(
@@ -326,6 +463,37 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert saved_query.query_syntax == JiraSavedQuery.QuerySyntax.LOCAL_FILTER
         assert saved_query.is_starred is True
 
+    def test_new_query_card_defaults_to_all_ticket_columns_when_column_order_is_omitted(self):
+        response = self.client.post(
+            reverse("jira_workspace:query"),
+            {
+                "action": "create_card",
+                "name": "All Column Card",
+                "profile": str(self.profile.id),
+                "description": "Uses all default columns",
+                "card_kind": JiraSavedQuery.CardKind.JIRA_ISSUE_QUERY,
+                "query_syntax": JiraSavedQuery.QuerySyntax.LOCAL_FILTER,
+                "default_page_size": "25",
+                "sort_by": "updated_at",
+                "sort_order": "desc",
+            },
+        )
+
+        assert response.status_code == 302
+        saved_query = JiraSavedQuery.objects.get(name="All Column Card")
+        assert saved_query.default_columns_json == [
+            "issue_key",
+            "project_key",
+            "summary",
+            "status",
+            "assignee",
+            "reporter",
+            "priority",
+            "updated_at",
+            "sprint",
+            "created_at",
+        ]
+
     def test_query_page_can_update_query_card(self):
         selected = JiraSavedQuery.objects.get(name="Team Review Queue")
 
@@ -360,6 +528,29 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert selected.default_columns_json == ["issue_key", "project_key", "summary"]
         assert selected.is_pinned is True
 
+    def test_query_page_saves_submitted_default_column_order(self):
+        selected = JiraSavedQuery.objects.get(name="Team Review Queue")
+
+        response = self.client.post(
+            reverse("jira_workspace:query"),
+            {
+                "action": "update_card",
+                "card_id": str(selected.id),
+                "name": "Ordered Columns",
+                "profile": str(self.profile.id),
+                "card_kind": JiraSavedQuery.CardKind.JIRA_ISSUE_QUERY,
+                "query_syntax": JiraSavedQuery.QuerySyntax.LOCAL_FILTER,
+                "default_column_values": "summary, issue_key, created_at, sprint",
+                "default_page_size": "25",
+                "sort_by": "updated_at",
+                "sort_order": "desc",
+            },
+        )
+
+        assert response.status_code == 302
+        selected.refresh_from_db()
+        assert selected.default_columns_json == ["summary", "issue_key", "created_at", "sprint"]
+
     def test_query_page_allows_selecting_card_parameter_and_legacy_saved_query_parameter(self):
         selected = JiraSavedQuery.objects.get(name="Team Review Queue")
 
@@ -392,6 +583,49 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert delete_response.status_code == 302
         assert not JiraSavedQuery.objects.filter(id=duplicate.id).exists()
         assert "card=" in delete_response["Location"]
+
+    def test_query_run_now_post_creates_operation_log(self):
+        selected = JiraSavedQuery.objects.get(name="Team Review Queue")
+
+        response = self.client.post(
+            reverse("jira_workspace:query"),
+            {"action": "run_card", "card_id": str(selected.id)},
+        )
+
+        assert response.status_code == 302
+        assert response["Location"] == f"{reverse('jira_workspace:query')}?card={selected.id}"
+        log = OperationLog.objects.get(tool=OperationLog.Tool.JIRA_QUERY, action="run_card")
+        assert log.title == "Team Review Queue"
+        assert log.status == OperationLog.Status.SUCCESS
+        assert log.target_type == "query_card"
+        assert log.target_id == str(selected.id)
+
+    def test_query_page_renders_recent_operation_logs(self):
+        selected = JiraSavedQuery.objects.get(name="Team Review Queue")
+        OperationLog.objects.create(
+            tool=OperationLog.Tool.JIRA_QUERY,
+            action="run_card",
+            status=OperationLog.Status.SUCCESS,
+            title="Team Review Queue",
+            triggered_by="xchen17",
+            target_type="query_card",
+            target_id=str(selected.id),
+            result_summary="1 results",
+            log_text="query run succeeded",
+            started_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        )
+
+        response = self.client.get(reverse("jira_workspace:query"), {"card": selected.id})
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Recent Logs" not in content
+        assert "Logs" in content
+        assert "Team Review Queue" in content
+        assert 'data-query-results-view-tab="results"' in content
+        assert 'data-query-results-view-tab="logs"' in content
+        assert 'data-query-results-panel="results"' in content
+        assert 'data-query-results-panel="logs"' in content
 
     def test_query_page_preserves_editor_state_for_invalid_card_input(self):
         response = self.client.post(
@@ -429,6 +663,12 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert 'name="sprint_value"' in content
         assert 'name="issue_type_values"' in content
         assert 'name="priority_values"' in content
+        assert 'data-query-card-column-editor' in content
+        assert 'name="default_column_values"' in content
+        assert 'value="issue_key, project_key, summary, status, assignee, reporter, priority, updated_at, sprint, created_at"' in content
+        assert 'data-column-key="created_at"' in content
+        assert 'data-column-move="up"' in content
+        assert 'data-column-move="down"' in content
 
     def test_new_query_card_can_save_people_project_label_sprint_type_and_priority_filters(self):
         response = self.client.post(
@@ -517,16 +757,30 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
             '<section class="panel dashboard-main query-workbench__results">',
             1,
         )
-        results_header = results_panel.split("</div>", 1)[0]
+        results_header = results_panel.split('data-query-results-panel="results"', 1)[0]
 
         assert 'aria-label="Current query summary"' not in before_results
         assert 'aria-label="Current query summary"' in results_header
         assert results_header.index("Query Results") < results_header.index("Current query summary")
+        assert results_header.index("Results") < results_header.index("Logs")
         assert "Total results" in results_header
         assert "status-pill--neutral" not in results_header
         assert " rows" not in results_header
 
-    def test_query_cards_live_in_left_app_nav_without_legacy_jira_sections(self):
+    def test_query_results_default_to_results_panel_with_logs_panel_hidden(self):
+        selected = JiraSavedQuery.objects.get(name="Team Review Queue")
+
+        response = self.client.get(reverse("jira_workspace:query"), {"card": selected.id})
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        results_panel = content.split('data-query-results-panel="results"', 1)[1].split(">", 1)[0]
+        logs_panel = content.split('data-query-results-panel="logs"', 1)[1].split(">", 1)[0]
+
+        assert 'data-view-active="true"' in results_panel
+        assert "hidden" in logs_panel
+
+    def test_query_cards_remain_in_left_sidebar_after_sync_navigation_addition(self):
         response = self.client.get(reverse("jira_workspace:query"))
 
         assert response.status_code == 200
@@ -534,15 +788,13 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         app_nav = content.split('<aside class="app-nav app-nav--commercial"', 1)[1].split("</aside>", 1)[0]
         app_main = content.split('<main class="app-main">', 1)[1].split("</main>", 1)[0]
 
-        assert 'aria-label="Query Cards"' in app_nav
+        assert 'aria-label="Jira Query Cards"' in app_nav
         assert "My Open Blockers" in app_nav
         assert "Team Review Queue" in app_nav
         assert "New Card" in app_nav
         assert 'aria-label="Current Tool"' not in app_nav
-        assert "Dashboard" not in app_nav
-        assert "Issues" not in app_nav
         assert "Sync" not in app_nav
-        assert 'aria-label="Query Cards"' not in app_main
+        assert 'aria-label="Jira Query Cards"' not in app_main
         assert 'query-workbench__nav' not in app_main
 
     def test_query_card_rules_render_in_main_detail_not_left_nav(self):
@@ -659,7 +911,7 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
 
     def test_issues_page_can_render_large_local_cache_for_table_testing(self):
         for index in range(30):
-            JiraIssue.objects.create(
+            issue = JiraIssue.objects.create(
                 issue_key=f"API-{index + 1000}",
                 project_key="API",
                 summary=f"Generated issue {index}",
@@ -671,6 +923,11 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
                 created_at=datetime.now(timezone.utc) - timedelta(days=1, minutes=index),
                 raw_json="{}",
                 last_seen_at=datetime.now(timezone.utc),
+            )
+            add_policy_membership(
+                issue=issue,
+                version=self.policy_version,
+                scope=self.sync_scope,
             )
 
         response = self.client.get(reverse("jira_workspace:issues"))
@@ -698,6 +955,22 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         content = response.content.decode()
         assert 'data-rich-table-id="jira-query-results"' in content
         assert f'data-rich-table-persist-scope="/jira/query/card/{selected.id}/"' in content
+        assert 'data-rich-table-default-columns="' in content
+
+    def test_query_table_ticket_keys_link_to_jira_browse_url(self):
+        JiraConnection.objects.create(
+            base_url="https://jirap-cli.corp.ebay.com",
+            api_token="token-123",
+            auth_type=JiraConnection.AuthType.BEARER,
+        )
+
+        response = self.client.get(reverse("jira_workspace:query"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'data-rich-table-ticket-browse-base-url="https://jirap.corp.ebay.com"' in content
+        assert 'href="https://jirap.corp.ebay.com/browse/OPS-778"' in content
+        assert 'target="_blank"' in content
 
     def test_query_page_renders_ticket_detail_drawer_for_row_click_details(self):
         response = self.client.get(reverse("jira_workspace:query"))
@@ -737,27 +1010,49 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert "Logs" in content.split('aria-label="Tool Switcher"', 1)[1].split("</nav>", 1)[0]
         assert 'aria-label="Tools"' not in content
         assert 'aria-label="Current Tool"' not in app_nav
-        assert "Query Cards" in content
-        assert "Starred" in content
-        assert "Jira Issues" in content.split("Starred", 1)[1]
+        assert "Query Cards" in app_nav
+        assert "Starred" in app_nav
+        assert "Jira Issues" in app_nav.split("Starred", 1)[1]
 
-    def test_query_page_renders_jira_secondary_nav_with_active_query_link(self):
+    def test_query_page_renders_jira_secondary_navigation(self):
         response = self.client.get(reverse("jira_workspace:query"))
 
         assert response.status_code == 200
         content = response.content.decode()
-        current_tool_nav = content.split('aria-label="Current Tool"', 1)[1].split(
+        current_tool_nav = content.split('<nav class="tool-context-nav"', 1)[1].split(
             "</nav>", 1
         )[0]
 
+        assert 'aria-label="Current Tool"' in current_tool_nav
         assert "Dashboard" in current_tool_nav
         assert "Query" in current_tool_nav
         assert "Sync" in current_tool_nav
         assert "Profiles" in current_tool_nav
-        query_link = current_tool_nav.split(
-            f'href="{reverse("jira_workspace:query")}"', 1
+        query_href = reverse("jira_workspace:query")
+        assert (
+            f'<a class="tool-context-nav__link active" href="{query_href}"'
+            in current_tool_nav
+        )
+        assert 'aria-current="page"' in current_tool_nav
+
+    def test_query_page_renders_query_card_nav_with_active_card_link(self):
+        selected = JiraSavedQuery.objects.get(name="Team Review Queue")
+
+        response = self.client.get(reverse("jira_workspace:query"), {"card": selected.id})
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        query_card_nav = content.split('aria-label="Jira Query Cards"', 1)[1].split(
+            "</nav>", 1
+        )[0]
+
+        assert "My Open Blockers" in query_card_nav
+        assert "Team Review Queue" in query_card_nav
+        query_link = query_card_nav.rsplit(
+            '<a class="query-card-nav__item', 1
         )[1].split("</a>", 1)[0]
-        assert 'aria-current="page"' in query_link
+        assert f'href="{reverse("jira_workspace:query")}?card={selected.id}"' in query_link
+        assert "is-active" in query_link
 
     def test_toggle_star_route_adds_and_removes_starred_page_entry(self):
         response = self.client.post(
@@ -803,19 +1098,125 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert 'data-ticket-sprint="Sprint 42"' in content
         assert "Escalate blocker handling" in content
 
+    def test_sync_page_renders_command_center_summary_sections(self):
+        response = self.client.get(reverse("jira_workspace:sync"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Current Profile" in content
+        assert "Latest Status" in content
+        assert "Recent Runs Summary" in content
+        assert "Recent Logs Summary" in content
+        assert "Details" in content
+        assert "Run History" in content
+        assert "Profile Editor" in content
+        assert "Sync Run Timeline" not in content
+        assert "Run Configuration Presets" not in content
+
+    def test_sync_page_renders_global_policy_status_and_scope_cards(self):
+        response = self.client.get(reverse("jira_workspace:sync"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Global Sync Policy" in content
+        assert "Current Policy Version" in content
+        assert "Required Scopes" in content
+        assert "Run Due Scopes" in content
+        assert "My Assigned or Reported Issues" in content
+
+    def test_sync_post_can_rebuild_current_version(self):
+        policy = GlobalSyncPolicy.objects.get(name="Primary Jira Policy")
+        before_version_count = policy.versions.count()
+
+        response = self.client.post(
+            reverse("jira_workspace:sync"),
+            {"action": "rebuild_policy", "policy_id": str(policy.id)},
+        )
+
+        assert response.status_code == 302
+        policy.refresh_from_db()
+        assert policy.status == GlobalSyncPolicy.Status.STALE
+        assert policy.versions.count() == before_version_count + 1
+
+    @patch("jira_workspace.views.SyncService.run_scope_incremental")
+    def test_sync_post_can_run_scope_incremental(self, run_scope_incremental):
+        scope = self.sync_scope
+
+        response = self.client.post(
+            reverse("jira_workspace:sync"),
+            {"action": "run_scope_incremental", "scope_id": str(scope.id)},
+        )
+
+        assert response.status_code == 302
+        run_scope_incremental.assert_called_once()
+        assert run_scope_incremental.call_args.args[0] == scope
+
+    def test_sync_page_collapses_details_by_default(self):
+        response = self.client.get(reverse("jira_workspace:sync"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'data-sync-details-toggle' in content
+        assert 'data-sync-details-panel="history"' in content
+        assert 'data-sync-details-panel="profile"' in content
+        history_open_tag = content.split('data-sync-details-panel="history"', 1)[1].split(">", 1)[0]
+        profile_open_tag = content.split('data-sync-details-panel="profile"', 1)[1].split(">", 1)[0]
+        assert "hidden" in history_open_tag
+        assert "hidden" in profile_open_tag
+
+    def test_sync_page_renders_compact_recent_run_summary_rows(self):
+        response = self.client.get(reverse("jira_workspace:sync"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'data-sync-summary-runs' in content
+        assert 'data-sync-summary-run-item' in content
+        assert "Recent Sync Runs" in content
+
+    def test_sync_page_keeps_full_run_history_table_inside_details(self):
+        response = self.client.get(reverse("jira_workspace:sync"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        details_region = content.split('data-sync-details-panel="history"', 1)[1]
+        assert "<th scope=\"col\">Log</th>" in details_region
+        assert "Recent Sync Runs" in content
+
     def test_sync_page_renders_profiles_runs_and_blocker_state(self):
         response = self.client.get(reverse("jira_workspace:sync"))
 
         assert response.status_code == 200
         content = response.content.decode()
-        assert "Run Configuration Presets" in content
-        assert "Sync Run Timeline" in content
+        assert "Current Profile" in content
+        assert "Recent Runs Summary" in content
         assert "My Issues" in content
         assert "success" in content.lower()
         assert "The request is blocked." in content
         assert "External Jira access is currently blocked" in content
         assert "Profile Editor" in content
         assert "Sync Controls" in content
+        main_content = content.split('<main class="app-main">', 1)[1].split("</main>", 1)[0]
+        assert "Jira Connection" not in main_content
+        assert "Save connection" not in main_content
+        assert "Jira Connection" in content
+        assert "Save connection" in content
+
+    def test_sync_page_renders_failed_run_log_in_recent_runs_table(self):
+        JiraSyncRun.objects.create(
+            profile=self.profile,
+            run_type=JiraSyncRun.RunType.FULL,
+            status=JiraSyncRun.Status.FAILED,
+            started_at=datetime.now(timezone.utc),
+            finished_at=datetime.now(timezone.utc),
+            error_message="JIRA_API_BASE_URL and JIRA_API_TOKEN are required.",
+        )
+
+        response = self.client.get(reverse("jira_workspace:sync"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "<th scope=\"col\">Log</th>" in content
+        assert "JIRA_API_BASE_URL and JIRA_API_TOKEN are required." in content
 
     def test_sync_page_can_persist_a_profile(self):
         response = self.client.post(
@@ -835,8 +1236,81 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert profile.params_json == {"project_key": "OPS"}
         assert profile.is_default is True
 
-    @patch("jira_workspace.views.SyncService.incremental_sync")
-    def test_sync_page_can_trigger_incremental_sync(self, incremental_sync):
+    def test_sync_page_can_save_jira_connection_settings(self):
+        response = self.client.post(
+            reverse("jira_workspace:sync"),
+            {
+                "action": "save_connection",
+                "base_url": "https://jira.example.com/",
+                "auth_type": JiraConnection.AuthType.BASIC,
+                "user_email": "xchen17@example.com",
+                "api_token": "token-123",
+            },
+        )
+
+        assert response.status_code == 302
+        connection = JiraConnection.objects.get()
+        assert connection.base_url == "https://jira.example.com"
+        assert connection.auth_type == JiraConnection.AuthType.BASIC
+        assert connection.user_email == "xchen17@example.com"
+        assert connection.api_token == "token-123"
+
+    def test_jira_connection_settings_returns_to_safe_next_url(self):
+        response = self.client.post(
+            reverse("jira_workspace:sync"),
+            {
+                "action": "save_connection",
+                "next": reverse("jira_workspace:query"),
+                "base_url": "https://jira.example.com/",
+                "auth_type": JiraConnection.AuthType.BEARER,
+                "api_token": "token-123",
+            },
+        )
+
+        assert response.status_code == 302
+        assert response["Location"] == reverse("jira_workspace:query")
+
+    @patch("jira_workspace.views.JiraConnectionService.test_connection")
+    def test_sync_page_can_test_jira_connection(self, test_connection):
+        connection = JiraConnection.objects.create(
+            base_url="https://jira.example.com",
+            api_token="token-123",
+            auth_type=JiraConnection.AuthType.BEARER,
+        )
+        test_connection.return_value = connection
+
+        response = self.client.post(
+            reverse("jira_workspace:sync"),
+            {
+                "action": "test_connection",
+                "connection_id": str(connection.id),
+            },
+        )
+
+        assert response.status_code == 302
+        test_connection.assert_called_once_with(connection)
+
+    def test_settings_drawer_contains_jira_connection_controls(self):
+        JiraConnection.objects.create(
+            base_url="https://jira.example.com",
+            api_token="token-123",
+            auth_type=JiraConnection.AuthType.BEARER,
+            last_check_status=JiraConnection.CheckStatus.UNKNOWN,
+        )
+
+        response = self.client.get(reverse("jira_workspace:query"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        drawer = content.split('id="workspace-settings-drawer"', 1)[1]
+        assert "Jira Connection" in drawer
+        assert 'name="base_url"' in drawer
+        assert 'name="api_token"' in drawer
+        assert "Save connection" in drawer
+        assert "Test connection" in drawer
+
+    @patch("jira_workspace.views.SyncService.enqueue_sync")
+    def test_sync_page_queues_incremental_sync(self, enqueue_sync):
         response = self.client.post(
             reverse("jira_workspace:sync"),
             {
@@ -847,10 +1321,12 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         )
 
         assert response.status_code == 302
-        incremental_sync.assert_called_once()
+        enqueue_sync.assert_called_once()
+        assert enqueue_sync.call_args.args[0] == self.profile
+        assert enqueue_sync.call_args.args[1] == JiraSyncRun.RunType.INCREMENTAL
 
-    @patch("jira_workspace.views.SyncService.full_sync")
-    def test_sync_page_can_trigger_full_sync(self, full_sync):
+    @patch("jira_workspace.views.SyncService.enqueue_sync")
+    def test_sync_page_queues_full_sync(self, enqueue_sync):
         response = self.client.post(
             reverse("jira_workspace:sync"),
             {
@@ -861,7 +1337,118 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         )
 
         assert response.status_code == 302
-        full_sync.assert_called_once()
+        enqueue_sync.assert_called_once()
+        assert enqueue_sync.call_args.args[0] == self.profile
+        assert enqueue_sync.call_args.args[1] == JiraSyncRun.RunType.FULL
+
+    @patch("jira_workspace.views.SyncService.enqueue_sync")
+    def test_sync_page_shows_error_when_full_run_blocks_new_enqueue(self, enqueue_sync):
+        enqueue_sync.side_effect = ActiveFullSyncError(
+            "A Jira full sync is already queued or running. "
+            "Wait for it to finish before starting another Jira sync task."
+        )
+
+        response = self.client.post(
+            reverse("jira_workspace:sync"),
+            {
+                "action": "run_sync",
+                "profile_id": str(self.profile.id),
+                "run_type": JiraSyncRun.RunType.INCREMENTAL,
+            },
+            follow=True,
+        )
+
+        assert response.status_code == 200
+        assert "A Jira full sync is already queued or running." in response.content.decode()
+
+    def test_sync_page_keeps_run_buttons_enabled_when_full_run_is_active(self):
+        JiraSyncRun.objects.create(
+            profile=self.profile,
+            run_type=JiraSyncRun.RunType.FULL,
+            status=JiraSyncRun.Status.RUNNING,
+            started_at=datetime.now(timezone.utc),
+            progress_message="Fetched 10 of 20 issues.",
+        )
+
+        response = self.client.get(reverse("jira_workspace:sync"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        incremental_button = content.split('name="run_type" value="incremental"', 1)[1].split(">", 1)[0]
+        full_button = content.split('name="run_type" value="full"', 1)[1].split(">", 1)[0]
+        assert "disabled" not in incremental_button
+        assert "disabled" not in full_button
+        assert "A Jira full sync is already queued or running." in content
+
+    def test_sync_page_renders_running_progress(self):
+        JiraSyncRun.objects.create(
+            profile=self.profile,
+            run_type=JiraSyncRun.RunType.FULL,
+            status=JiraSyncRun.Status.RUNNING,
+            started_at=datetime.now(timezone.utc),
+            fetched_count=40,
+            progress_current_count=40,
+            progress_total_count=100,
+            progress_message="Fetched 40 of 100 issues.",
+        )
+
+        response = self.client.get(reverse("jira_workspace:sync"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'data-sync-refresh="active"' in content
+        assert "Fetched 40 of 100 issues." in content
+        assert 'aria-valuenow="40"' in content
+
+    def test_sync_page_renders_running_progress_inside_latest_status(self):
+        JiraSyncRun.objects.create(
+            profile=self.profile,
+            run_type=JiraSyncRun.RunType.FULL,
+            status=JiraSyncRun.Status.RUNNING,
+            started_at=datetime.now(timezone.utc),
+            fetched_count=40,
+            progress_current_count=40,
+            progress_total_count=100,
+            progress_message="Fetched 40 of 100 issues.",
+        )
+
+        response = self.client.get(reverse("jira_workspace:sync"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Latest Status" in content
+        latest_status_block = content.split("Latest Status", 1)[1].split("Recent Runs Summary", 1)[0]
+        assert "Fetched 40 of 100 issues." in latest_status_block
+        assert 'aria-valuenow="40"' in latest_status_block
+
+    def test_sync_page_keeps_recent_logs_summary_links(self):
+        response = self.client.get(reverse("jira_workspace:sync"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Recent Logs Summary" in content
+        assert "/jira/logs/" in content
+
+    def test_sync_page_renders_recent_operation_logs(self):
+        OperationLog.objects.create(
+            tool=OperationLog.Tool.JIRA_SYNC,
+            action=JiraSyncRun.RunType.FULL,
+            status=OperationLog.Status.FAILED,
+            title="My Issues full",
+            triggered_by="xchen17",
+            target_type="jira_sync_profile",
+            target_id=str(self.profile.id),
+            error_message="Jira returned 403",
+            log_text="sync failed",
+            started_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        )
+
+        response = self.client.get(reverse("jira_workspace:sync"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Recent Logs" in content
+        assert "My Issues full" in content
 
 
 class JiraWorkspaceNavigationTests(TestCase):
@@ -876,6 +1463,7 @@ class JiraWorkspaceNavigationTests(TestCase):
             (reverse("jira_workspace:query"), "Jira Dashboard"),
             (reverse("jira_workspace:issues"), "Jira Issues"),
             (reverse("jira_workspace:sync"), "Jira Sync"),
+            (reverse("jira_workspace:logs"), "Operation Logs"),
             ("/sync2pod/", "sync2pod"),
             ("/integrations/", "Integrations"),
         ]
@@ -968,6 +1556,68 @@ class JiraWorkspaceNavigationTests(TestCase):
         assert "Cross-Tool Activity" in content
         assert "catalog refresh completed" in content
         assert "sync2pod command is not available on this host." in content
+
+    def test_workspace_shell_exposes_logs_tool(self):
+        response = self.client.get("/workspace/")
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Logs" in content
+        assert "/logs/" in content
+
+    def test_logs_page_lists_operation_logs_and_filters(self):
+        failed_log = OperationLog.objects.create(
+            tool=OperationLog.Tool.JIRA_QUERY,
+            action="run_card",
+            status=OperationLog.Status.FAILED,
+            title="Assigned to me",
+            triggered_by="xchen17",
+            error_message="query failed",
+            log_text="trace",
+            started_at=datetime.now(timezone.utc) - timedelta(minutes=2),
+        )
+        OperationLog.objects.create(
+            tool=OperationLog.Tool.SYNC2POD,
+            action="start_sync",
+            status=OperationLog.Status.SUCCESS,
+            title="Primary Pod",
+            triggered_by="xchen17",
+            result_summary="Exit code 0",
+            log_text="stdout",
+            started_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        )
+
+        response = self.client.get(
+            reverse("jira_workspace:logs"),
+            {"tool": OperationLog.Tool.JIRA_QUERY, "status": OperationLog.Status.FAILED},
+        )
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Operation Logs" in content
+        assert "Assigned to me" in content
+        assert "Primary Pod" not in content
+        assert reverse("jira_workspace:log_detail", args=[failed_log.id]) in content
+
+    def test_log_detail_page_renders_full_log_body(self):
+        log = OperationLog.objects.create(
+            tool=OperationLog.Tool.JIRA_SYNC,
+            action=JiraSyncRun.RunType.FULL,
+            status=OperationLog.Status.SUCCESS,
+            title="OPS Sync",
+            triggered_by="xchen17",
+            result_summary="Fetched 4 issues",
+            log_text="effective_jql=project = OPS",
+            started_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        )
+
+        response = self.client.get(reverse("jira_workspace:log_detail", args=[log.id]))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "OPS Sync" in content
+        assert "Fetched 4 issues" in content
+        assert "effective_jql=project = OPS" in content
 
 
 class Sync2PodViewTests(TestCase):
@@ -1093,6 +1743,34 @@ class Sync2PodViewTests(TestCase):
         assert run.profile == profile
         assert run.status == Sync2PodRun.Status.SUCCESS
 
+    def test_sync2pod_page_renders_recent_operation_logs(self):
+        profile = Sync2PodProfile.objects.create(
+            name="Primary Pod",
+            pod_name="pod-a",
+            namespace="sync",
+            watch_path="/tmp/watch",
+            command="true",
+        )
+        OperationLog.objects.create(
+            tool=OperationLog.Tool.SYNC2POD,
+            action="start_sync",
+            status=OperationLog.Status.SUCCESS,
+            title="Primary Pod",
+            triggered_by="xchen17",
+            target_type="sync2pod_profile",
+            target_id=str(profile.id),
+            result_summary="Exit code 0",
+            log_text="stdout=synced 4 files",
+            started_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        )
+
+        response = self.client.get(reverse("jira_workspace:sync2pod"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Recent Logs" in content
+        assert "Primary Pod" in content
+
 
 class IntegrationsViewTests(TestCase):
     def setUp(self):
@@ -1162,6 +1840,44 @@ class IntegrationsViewTests(TestCase):
         assert "Push local files into pods." in content
         assert "Refreshes cached Jira issues." not in content
 
+    def test_integrations_post_runs_catalog_scan_and_creates_operation_log(self):
+        sync2pod = IntegrationTool.objects.get(key="sync2pod")
+
+        response = self.client.post(
+            reverse("jira_workspace:integrations"),
+            {"action": "run_scan", "tool_id": str(sync2pod.id)},
+        )
+
+        assert response.status_code == 302
+        log = OperationLog.objects.get(
+            tool=OperationLog.Tool.INTEGRATIONS,
+            action="run_scan",
+        )
+        assert log.title == "sync2pod"
+        assert log.status == OperationLog.Status.SUCCESS
+
+    def test_integrations_page_renders_recent_operation_logs(self):
+        sync2pod = IntegrationTool.objects.get(key="sync2pod")
+        OperationLog.objects.create(
+            tool=OperationLog.Tool.INTEGRATIONS,
+            action="run_scan",
+            status=OperationLog.Status.SUCCESS,
+            title="sync2pod",
+            triggered_by="xchen17",
+            target_type="integration_tool",
+            target_id=str(sync2pod.id),
+            result_summary="events missing",
+            log_text="scan completed",
+            started_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        )
+
+        response = self.client.get(reverse("jira_workspace:integrations"))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Recent Logs" in content
+        assert "sync2pod" in content
+
 
 class JiraWorkspaceStylesheetTests(TestCase):
     def test_shared_stylesheet_includes_toolbar_and_form_layout_hooks(self):
@@ -1178,6 +1894,12 @@ class JiraWorkspaceStylesheetTests(TestCase):
             ".group-stack",
         ]:
             assert selector in css
+
+    def test_sync_run_log_column_wraps_long_error_messages(self):
+        css = Path(settings.BASE_DIR / "static/jira_workspace/jira.css").read_text()
+
+        assert ".sync-run-log {" in css
+        assert "overflow-wrap: anywhere;" in css
 
     def test_topbar_uses_compact_global_toolbar_treatment(self):
         topbar_template = Path(
@@ -1283,9 +2005,13 @@ class JiraWorkspaceStylesheetTests(TestCase):
 
         assert "function openQueryCardEditor" in js
         assert "function closeQueryCardEditor" in js
+        assert "function initializeQueryCardColumnEditors" in js
+        assert "function syncQueryCardColumnOrder" in js
         assert "data-query-card-editor" in js
         assert "data-query-card-editor-open" in js
         assert "data-query-card-editor-close" in js
+        assert "data-query-card-column-editor" in js
+        assert "data-column-move" in js
         assert "closeTicketDrawer();" in js
         assert "closeQueryCardEditor();" in js
 
@@ -1440,6 +2166,11 @@ class JiraWorkspaceStylesheetTests(TestCase):
         assert "function initializeRichTable(container, options)" in js
         assert "function buildRichTableStorageKey(container)" in js
         assert "function buildTicketColumns(container)" in js
+        assert "function ticketKeyLinkFormatter(container)" in js
+        assert 'formatter: ticketKeyLinkFormatter(container)' in js
+        assert 'event.target.closest(".ticket-key-link")' in js
+        assert "function readRichTableDefaultColumns(container)" in js
+        assert "function applyRichTableDefaultColumns(container, columns)" in js
         assert "var TICKET_COLUMN_WIDTHS" in js
         assert "initialWidth" not in js
         assert "function renderRichTableToolbar(container, table)" in js
@@ -1556,6 +2287,17 @@ class JiraWorkspaceStylesheetTests(TestCase):
         assert "max-block-size: none;" in css
         assert ".query-workbench__results .tabulator-tableholder {\n  min-height: 0;" in css
 
+    def test_query_results_logs_switcher_has_javascript_and_styles(self):
+        js = Path(settings.BASE_DIR / "static/jira_workspace/jira.js").read_text()
+        css = Path(settings.BASE_DIR / "static/jira_workspace/jira.css").read_text()
+
+        assert "function initializeQueryResultsViewToggle(scope)" in js
+        assert 'data-query-results-view-tab' in js
+        assert 'data-query-results-panel' in js
+        assert ".query-results-switcher" in css
+        assert ".query-results-switcher__tab" in css
+        assert ".query-results-panel[hidden]" in css
+
     def test_collapsed_sidebar_does_not_constrain_mobile_shell_width(self):
         css = Path(settings.BASE_DIR / "static/jira_workspace/jira.css").read_text()
 
@@ -1604,3 +2346,32 @@ class JiraWorkspaceStylesheetTests(TestCase):
         assert "asset_version" in js
         assert "data_version" in js
         assert "refreshAutoTargets" in js
+
+    def test_base_template_cache_busts_local_frontend_assets(self):
+        base_template = Path(settings.BASE_DIR / "templates/jira_workspace/base.html").read_text()
+
+        assert "jira_workspace/jira.css' %}?v={{ shell_asset_version" in base_template
+        assert "jira_workspace/jira.js' %}?v={{ shell_asset_version" in base_template
+
+    def test_sync_command_center_styles_and_hooks_exist(self):
+        css = Path(settings.BASE_DIR / "static/jira_workspace/jira.css").read_text()
+        html = Path(settings.BASE_DIR / "templates/jira_workspace/sync.html").read_text()
+
+        assert ".sync-command-center" in css
+        assert ".sync-card--profile" in css
+        assert ".sync-card--controls" in css
+        assert ".sync-card--status" in css
+        assert ".sync-details__panel[hidden]" in css
+        assert "@media (min-width: 1401px)" in css
+        assert 'data-sync-summary-runs' in html
+        assert 'data-sync-details-toggle="history"' in html
+        assert 'data-sync-details-toggle="profile"' in html
+
+    def test_sync_command_center_javascript_hooks_are_present(self):
+        js = Path(settings.BASE_DIR / "static/jira_workspace/jira.js").read_text()
+        css = Path(settings.BASE_DIR / "static/jira_workspace/jira.css").read_text()
+
+        assert 'data-sync-details-toggle' in js
+        assert 'data-sync-details-panel' in js
+        assert 'sync-details__panel' in css
+        assert 'initializeSyncRefresh();' in js
