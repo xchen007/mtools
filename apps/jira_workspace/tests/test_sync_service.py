@@ -6,11 +6,15 @@ from django.test import TestCase, override_settings
 from jira_workspace.models import (
     GlobalSyncPolicy,
     GlobalSyncPolicyVersion,
+    GlobalSyncPolicy,
+    GlobalSyncPolicyVersion,
     JiraIssue,
     JiraIssueScopeMembership,
     JiraIssueSyncMembership,
+    JiraIssueScopeMembership,
     JiraSyncProfile,
     JiraSyncRun,
+    SyncScope,
     SyncScope,
 )
 from jira_workspace.services.sync_service import SyncService
@@ -32,10 +36,114 @@ def build_issue_payload(*, key, updated_at, summary="Summary", status="To Do"):
     }
 
 
+def build_ready_self_scope():
+    policy = GlobalSyncPolicy.objects.create(
+        name="Primary Jira Policy",
+        strategy_json={"required_self": True, "scopes": []},
+        strategy_hash="hash-v1",
+        status=GlobalSyncPolicy.Status.READY,
+    )
+    version = GlobalSyncPolicyVersion.objects.create(
+        policy=policy,
+        version_no=1,
+        strategy_hash="hash-v1",
+        status=GlobalSyncPolicyVersion.Status.READY,
+        full_sync_required=False,
+        full_sync_completed_at=datetime(2026, 6, 15, 1, 0, tzinfo=timezone.utc),
+    )
+    policy.current_version = version
+    policy.save(update_fields=["current_version", "updated_at"])
+    scope = SyncScope.objects.create(
+        policy_version=version,
+        scope_type=SyncScope.ScopeType.SELF_REQUIRED,
+        name="My Assigned or Reported Issues",
+        is_required=True,
+        is_enabled=True,
+        is_system_scope=True,
+        schedule_minutes=30,
+        config_json={"mode": "self"},
+        base_jql="assignee = currentUser() OR reporter = currentUser()",
+        last_full_sync_at=datetime(2026, 6, 15, 1, 0, tzinfo=timezone.utc),
+        last_successful_check_at=datetime(2026, 6, 15, 1, 0, tzinfo=timezone.utc),
+        last_issue_updated_cursor="2026-06-15T01:00:00+00:00",
+        last_run_status=SyncScope.RunStatus.SUCCESS,
+        next_run_at=datetime(2026, 6, 15, 1, 30, tzinfo=timezone.utc),
+    )
+    return policy, version, scope
+
+
 class JiraWorkspaceSyncServiceTests(TestCase):
     def setUp(self):
         self.adapter = Mock()
         self.service = SyncService(jira_adapter=self.adapter)
+
+    def test_policy_change_creates_new_version_and_queues_full_scopes(self):
+        policy = GlobalSyncPolicy.objects.create(
+            name="Primary Jira Policy",
+            strategy_json={"required_self": True, "scopes": []},
+            strategy_hash="hash-v1",
+            status=GlobalSyncPolicy.Status.READY,
+        )
+        service = SyncService(jira_adapter=self.adapter)
+
+        version = service.apply_policy_strategy(
+            policy=policy,
+            strategy_json={
+                "required_self": True,
+                "scopes": [{"scope_type": "project", "name": "OPS", "project_key": "OPS"}],
+            },
+        )
+
+        policy.refresh_from_db()
+        assert version.version_no == 1
+        assert version.status == GlobalSyncPolicyVersion.Status.PENDING_FULL_SYNC
+        assert policy.status == GlobalSyncPolicy.Status.STALE
+        assert version.scopes.filter(last_run_status=SyncScope.RunStatus.QUEUED_FULL).count() == 2
+
+    def test_incremental_scope_sync_uses_cursor_overlap_and_updates_success_time_for_unchanged_issue(self):
+        policy, version, scope = build_ready_self_scope()
+        issue = JiraIssue.objects.create(
+            issue_key="OPS-778",
+            project_key="OPS",
+            summary="Summary",
+            status="To Do",
+            assignee="xchen17",
+            reporter="reporter1",
+            priority="High",
+            updated_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            created_at=datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc),
+            sprint="Sprint 42",
+            raw_json='{"key":"OPS-778"}',
+            last_seen_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_checked_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_synced_success_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            is_active_in_current_policy=True,
+            first_seen_policy_version_id=version.id,
+            last_seen_policy_version_id=version.id,
+        )
+        JiraIssueScopeMembership.objects.create(
+            issue=issue,
+            scope=scope,
+            policy_version=version,
+            first_seen_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_checked_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_synced_success_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_seen_issue_updated_at=issue.updated_at,
+            is_active=True,
+        )
+        scope.last_issue_updated_cursor = "2026-06-15T01:05:00+00:00"
+        scope.save(update_fields=["last_issue_updated_cursor", "updated_at"])
+        self.adapter.fetch_issues.return_value = [
+            build_issue_payload(key="OPS-778", updated_at="2026-06-15T01:00:00+00:00")
+        ]
+
+        result = SyncService(jira_adapter=self.adapter).run_scope_incremental(scope)
+
+        issue.refresh_from_db()
+        scope.refresh_from_db()
+        assert "updated >=" in scope.effective_jql_last_run
+        assert result.unchanged_checked_count == 1
+        assert issue.last_synced_success_at > datetime.fromisoformat("2026-06-15T01:00:00+00:00")
 
     def test_incremental_sync_inserts_a_new_issue(self):
         profile = JiraSyncProfile.objects.create(
