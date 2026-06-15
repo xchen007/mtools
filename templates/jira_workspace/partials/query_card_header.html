@@ -1,0 +1,24 @@
+<header class="query-card-header">
+  <div class="query-card-header__title">
+    <h1>{{ selected_card.name }}</h1>
+    <p>{{ selected_card.description|default:"One reusable query card. Change the card definition and this same layout renders a different result set." }}</p>
+  </div>
+  <div class="query-card-header__actions">
+    <a class="workspace-control" href="{% url 'jira_workspace:sync' %}">Open Jira Sync</a>
+    <button class="workspace-control" type="button" data-query-card-editor-open>Edit card</button>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="duplicate_card">
+      <input type="hidden" name="card_id" value="{{ selected_card.id }}">
+      <button class="workspace-control" type="submit">Duplicate</button>
+    </form>
+    <button class="workspace-control" type="button" data-copy-text="{{ selected_card.jql_text|default:selected_card.name }}">Copy query</button>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="run_card">
+      <input type="hidden" name="card_id" value="{{ selected_card.id }}">
+      <button class="workspace-control workspace-control--primary" type="submit">Run now</button>
+    </form>
+    {% include "jira_workspace/partials/star_button.html" with star=selected_card.star %}
+  </div>
+</header>
