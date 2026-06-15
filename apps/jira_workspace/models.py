@@ -144,6 +144,10 @@ class GlobalSyncPolicy(models.Model):
 
     def clean(self):
         super().clean()
+        if self._state.adding and self.current_version_id is not None:
+            raise ValidationError(
+                {"current_version": "Current version cannot be set when creating a policy."}
+            )
         if (
             self.current_version_id is not None
             and self.id is not None

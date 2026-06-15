@@ -91,6 +91,29 @@ class JiraGlobalSyncPolicyModelTests(TestCase):
         with self.assertRaises(ValidationError):
             first_policy.save()
 
+    def test_policy_rejects_current_version_on_initial_create(self):
+        other_policy = GlobalSyncPolicy.objects.create(
+            name="Secondary Jira Policy",
+            strategy_json={"required_self": False, "scopes": []},
+            strategy_hash="hash-v2",
+            status=GlobalSyncPolicy.Status.STALE,
+        )
+        other_version = GlobalSyncPolicyVersion.objects.create(
+            policy=other_policy,
+            version_no=1,
+            strategy_hash="hash-v2",
+            status=GlobalSyncPolicyVersion.Status.PENDING_FULL_SYNC,
+            full_sync_required=True,
+        )
+
+        with self.assertRaises(ValidationError):
+            GlobalSyncPolicy.objects.create(
+                name="Bad Policy",
+                strategy_json={},
+                strategy_hash="bad",
+                current_version=other_version,
+            )
+
     def test_issue_membership_can_be_marked_inactive_without_deleting_issue(self):
         policy = GlobalSyncPolicy.objects.create(
             name="Primary Jira Policy",
