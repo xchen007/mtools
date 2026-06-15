@@ -155,6 +155,16 @@
     });
   }
 
+  function initializeSyncRefresh() {
+    var syncRoot = document.querySelector('[data-sync-refresh="active"]');
+    if (!syncRoot) {
+      return;
+    }
+    window.setTimeout(function () {
+      window.location.reload();
+    }, 3000);
+  }
+
   function drawerValue(row, name) {
     return row.getAttribute("data-ticket-" + name) || "-";
   }
@@ -203,7 +213,12 @@
       button.setAttribute("data-ticket-copy-active-key", data.key || "");
     });
     drawer.querySelectorAll("[data-ticket-open-external]").forEach(function (link) {
-      link.href = data.key && data.key !== "-" ? "https://jira/browse/" + encodeURIComponent(data.key) : "#";
+      var browseContainer = trigger && typeof trigger.closest === "function"
+        ? trigger.closest("[data-rich-table-ticket-browse-base-url]")
+        : null;
+      link.href = data.key && data.key !== "-"
+        ? ticketBrowseUrlFromBase(browseContainer ? readTicketBrowseBaseUrl(browseContainer) : "", data.key)
+        : "#";
     });
 
     drawer.classList.add("is-open");
@@ -248,6 +263,60 @@
     editor.classList.remove("is-open");
     editor.setAttribute("aria-hidden", "true");
     editor.setAttribute("data-editor-open", "false");
+  }
+
+  function syncQueryCardColumnOrder(editor) {
+    var input = editor.querySelector("[data-query-card-column-values]");
+    if (!input) {
+      return;
+    }
+
+    var values = [];
+    editor.querySelectorAll("[data-column-key]").forEach(function (item) {
+      var checkbox = item.querySelector("[data-column-enabled]");
+      if (checkbox && checkbox.checked) {
+        values.push(item.getAttribute("data-column-key"));
+      }
+    });
+    input.value = values.join(", ");
+  }
+
+  function initializeQueryCardColumnEditors(scope) {
+    (scope || document).querySelectorAll("[data-query-card-column-editor]").forEach(function (editor) {
+      if (editor.dataset.columnEditorInitialized === "true") {
+        return;
+      }
+
+      editor.addEventListener("click", function (event) {
+        var moveButton = event.target.closest("[data-column-move]");
+        if (!moveButton) {
+          return;
+        }
+
+        event.preventDefault();
+        var item = moveButton.closest("[data-column-key]");
+        var direction = moveButton.getAttribute("data-column-move");
+        if (!item || !item.parentNode) {
+          return;
+        }
+
+        if (direction === "up" && item.previousElementSibling) {
+          item.parentNode.insertBefore(item, item.previousElementSibling);
+        } else if (direction === "down" && item.nextElementSibling) {
+          item.parentNode.insertBefore(item.nextElementSibling, item);
+        }
+        syncQueryCardColumnOrder(editor);
+      });
+
+      editor.addEventListener("change", function (event) {
+        if (event.target.closest("[data-column-enabled]")) {
+          syncQueryCardColumnOrder(editor);
+        }
+      });
+
+      syncQueryCardColumnOrder(editor);
+      editor.dataset.columnEditorInitialized = "true";
+    });
   }
 
   function collectTicketRows(container) {
@@ -733,6 +802,58 @@
     }
   }
 
+  function normalizeTicketColumnKey(key) {
+    var aliases = {
+      issue_key: "key",
+      project_key: "project",
+      updated_at: "updated",
+      created_at: "created"
+    };
+    return aliases[key] || key;
+  }
+
+  function readRichTableDefaultColumns(container) {
+    return (container.getAttribute("data-rich-table-default-columns") || "")
+      .split(",")
+      .map(function (key) {
+        return normalizeTicketColumnKey(key.trim());
+      })
+      .filter(Boolean);
+  }
+
+  function applyRichTableDefaultColumns(container, columns) {
+    var defaultColumns = readRichTableDefaultColumns(container);
+    if (!defaultColumns.length) {
+      return columns;
+    }
+
+    var defaultSet = {};
+    defaultColumns.forEach(function (field) {
+      defaultSet[field] = true;
+    });
+
+    var columnsByField = {};
+    columns.forEach(function (column) {
+      columnsByField[column.field] = Object.assign({}, column, {
+        visible: defaultSet[column.field] === true
+      });
+    });
+
+    var orderedColumns = [];
+    defaultColumns.forEach(function (field) {
+      if (!columnsByField[field]) {
+        return;
+      }
+      orderedColumns.push(columnsByField[field]);
+      delete columnsByField[field];
+    });
+
+    Object.keys(columnsByField).forEach(function (field) {
+      orderedColumns.push(columnsByField[field]);
+    });
+    return orderedColumns;
+  }
+
   function collectRichTableState(table, container) {
     var columns = table.getColumns().map(function (column) {
       var definition = column.getDefinition();
@@ -759,7 +880,7 @@
   function buildTicketColumnsFromState(container, state) {
     var baseColumns = buildTicketColumns(container);
     if (!state || !state.columns || !state.columns.length) {
-      return baseColumns;
+      return applyRichTableDefaultColumns(container, baseColumns);
     }
 
     var baseColumnsByField = {};
@@ -869,6 +990,41 @@
     };
   }
 
+  function ticketBrowseUrlFromBase(baseUrl, key) {
+    var normalizedKey = key || "";
+    if (!normalizedKey || normalizedKey === "-") {
+      return "#";
+    }
+
+    var normalizedBase = (baseUrl || window.mtoolsJiraBrowseBaseUrl || "https://jirap.corp.ebay.com").replace(/\/+$/, "");
+    return normalizedBase + "/browse/" + encodeURIComponent(normalizedKey);
+  }
+
+  function readTicketBrowseBaseUrl(container) {
+    return container.getAttribute("data-rich-table-ticket-browse-base-url") || "";
+  }
+
+  function ticketKeyLinkFormatter(container) {
+    var baseUrl = readTicketBrowseBaseUrl(container);
+    return function (cell) {
+      var value = cell.getValue() || "-";
+      if (value === "-") {
+        return value;
+      }
+
+      var link = document.createElement("a");
+      link.className = "ticket-key-link";
+      link.href = ticketBrowseUrlFromBase(baseUrl, value);
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.textContent = value;
+      link.addEventListener("click", function (event) {
+        event.stopPropagation();
+      });
+      return link;
+    };
+  }
+
   function applyCombinedRichTableFilters(table) {
     var query = (table._mtoolsSearchQuery || "").trim().toLowerCase();
     var statuses = table._mtoolsStatusFilters || [];
@@ -921,7 +1077,7 @@
 
   function buildTicketColumns(container) {
     return [
-      { title: "Key", field: "key", frozen: true, sorter: "string", width: TICKET_COLUMN_WIDTHS.key },
+      { title: "Key", field: "key", frozen: true, sorter: "string", width: TICKET_COLUMN_WIDTHS.key, formatter: ticketKeyLinkFormatter(container) },
       { title: "Project", field: "project", sorter: "string", width: TICKET_COLUMN_WIDTHS.project, formatter: ticketTokenFormatter("project") },
       { title: "Summary", field: "summary", sorter: "string", minWidth: 280 },
       { title: "Status", field: "status", sorter: "string", width: TICKET_COLUMN_WIDTHS.status, formatter: ticketTokenFormatter("status") },
@@ -1229,7 +1385,7 @@
 
     if ((options && options.rowClick) === "drawer") {
       table.on("rowClick", function (event, row) {
-        if (event.target.closest("[data-ticket-copy-key]")) {
+        if (event.target.closest("[data-ticket-copy-key], .ticket-key-link")) {
           return;
         }
         openTicketDrawerFromData(row.getData(), row.getElement());
@@ -1326,6 +1482,52 @@
     });
   }
 
+  function initializeQueryResultsViewToggle(scope) {
+    (scope || document)
+      .querySelectorAll("[data-query-results-view-tab]")
+      .forEach(function (button) {
+        if (button.dataset.queryResultsToggleInitialized === "true") {
+          return;
+        }
+
+        button.dataset.queryResultsToggleInitialized = "true";
+        button.addEventListener("click", function () {
+          var target = button.getAttribute("data-query-results-target") || "results";
+          var container = button.closest(".query-workbench__results");
+          if (!container) {
+            return;
+          }
+
+          container
+            .querySelectorAll("[data-query-results-view-tab]")
+            .forEach(function (tab) {
+              var isActive = tab === button;
+              tab.classList.toggle("is-active", isActive);
+              tab.setAttribute("aria-selected", isActive ? "true" : "false");
+            });
+
+          container
+            .querySelectorAll("[data-query-results-panel]")
+            .forEach(function (panel) {
+              var isActive = panel.getAttribute("data-query-results-panel") === target;
+              if (isActive) {
+                panel.removeAttribute("hidden");
+                panel.setAttribute("data-view-active", "true");
+              } else {
+                panel.setAttribute("hidden", "");
+                panel.removeAttribute("data-view-active");
+              }
+            });
+
+          container
+            .querySelectorAll("[data-query-results-summary]")
+            .forEach(function (summary) {
+              summary.hidden = target !== "results";
+            });
+        });
+      });
+  }
+
   function closeTicketDrawer() {
     var drawer = document.querySelector("[data-ticket-drawer]");
     if (!drawer) {
@@ -1364,6 +1566,9 @@
 
     var ticketRow = event.target.closest("[data-ticket-row]");
     if (ticketRow) {
+      if (event.target.closest(".ticket-key-link")) {
+        return;
+      }
       event.preventDefault();
       openTicketDrawer(ticketRow);
       return;
@@ -1396,14 +1601,52 @@
     }
   });
 
+  function initializeSyncDetailsToggle(scope) {
+    (scope || document)
+      .querySelectorAll("[data-sync-details-toggle]")
+      .forEach(function (button) {
+        if (button.dataset.syncDetailsInitialized === "true") {
+          return;
+        }
+
+        button.dataset.syncDetailsInitialized = "true";
+        button.addEventListener("click", function () {
+          var target = button.getAttribute("data-sync-details-toggle");
+          var container = button.closest(".sync-details");
+          if (!container) {
+            return;
+          }
+
+          container.querySelectorAll("[data-sync-details-toggle]").forEach(function (tab) {
+            var active = tab === button;
+            tab.classList.toggle("is-active", active);
+            tab.setAttribute("aria-selected", active ? "true" : "false");
+          });
+
+          container.querySelectorAll("[data-sync-details-panel]").forEach(function (panel) {
+            var active = panel.getAttribute("data-sync-details-panel") === target;
+            if (active) {
+              panel.removeAttribute("hidden");
+            } else {
+              panel.setAttribute("hidden", "");
+            }
+          });
+        });
+      });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     initializeThemeSwitcher();
     initializeSettingsDrawer();
     initializeNavCollapse();
     initializeSidebarResize();
+    initializeQueryCardColumnEditors(document);
     markActiveNav();
     stampRailPlaceholders();
     initializeRichTables(document);
+    initializeQueryResultsViewToggle(document);
+    initializeSyncDetailsToggle(document);
     initializeLiveUpdates();
+    initializeSyncRefresh();
   });
 })();
