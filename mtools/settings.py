@@ -14,12 +14,6 @@ import os.path
 from pathlib import Path
 
 
-def env_flag(name, default=False):
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -137,9 +131,7 @@ import sys
 sys.path.insert(0, os.path.join(BASE_DIR, 'apps'))
 
 JIRA_API_BASE_URL = os.getenv("JIRA_API_BASE_URL", "").rstrip("/")
+JIRA_WEB_BASE_URL = os.getenv("JIRA_WEB_BASE_URL", "").rstrip("/")
 JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN", "")
 JIRA_AUTH_TYPE = os.getenv("JIRA_AUTH_TYPE", "bearer").lower()
 JIRA_USER_EMAIL = os.getenv("JIRA_USER_EMAIL", "")
-JIRA_SIMULATION_MODE = env_flag("JIRA_SIMULATION_MODE", default=False)
-JIRA_SIMULATION_SCENARIO = os.getenv("JIRA_SIMULATION_SCENARIO", "default")
-JIRA_SIMULATION_FIXTURE_PATH = os.getenv("JIRA_SIMULATION_FIXTURE_PATH", "")

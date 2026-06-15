@@ -18,6 +18,7 @@ class WorkspaceService:
         "jira": {"dashboard", "query", "queries", "issues", "sync", "profiles"},
         "sync2pod": {"sync2pod"},
         "integrations": {"integrations"},
+        "logs": {"logs", "log_detail"},
     }
     JIRA_SECTION_ROUTE_NAMES = {
         "dashboard": {"dashboard"},
@@ -229,6 +230,7 @@ class WorkspaceService:
             ("jira", "Jira", reverse("jira_workspace:query"), "Tool"),
             ("sync2pod", "sync2pod", "/sync2pod/", "Tool"),
             ("integrations", "Integrations", "/integrations/", "Tool"),
+            ("logs", "Logs", reverse("jira_workspace:logs"), "Tool"),
         ]
         return [
             {

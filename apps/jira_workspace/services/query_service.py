@@ -1,6 +1,6 @@
 from django.db.models import Count, Q
 
-from jira_workspace.models import JiraIssue
+from jira_workspace.models import GlobalSyncPolicy, JiraIssue
 
 VALID_SOURCES = ("all", "assigned", "created")
 VALID_SORT_FIELDS = (
@@ -16,6 +16,7 @@ VALID_SORT_FIELDS = (
     "updated_at",
 )
 VALID_SORT_ORDERS = ("asc", "desc")
+PRIMARY_GLOBAL_SYNC_POLICY_NAME = "Primary Jira Policy"
 
 
 def normalize_issue_filters(
@@ -99,7 +100,7 @@ def build_issue_queryset(
             f"Invalid sort_order '{sort_order}'. Expected one of: {expected_sort_orders}."
         )
 
-    queryset = JiraIssue.objects.all()
+    queryset = active_policy_issue_queryset()
 
     explicit_people = reporter is not None or assignee is not None
     reporter = (reporter or "").strip() if reporter is not None else ""
@@ -168,10 +169,11 @@ def build_issue_queryset(
 
 
 def build_issue_filter_options(*, username):
-    base_queryset = JiraIssue.objects.filter(Q(assignee=username) | Q(reporter=username))
+    active_queryset = active_policy_issue_queryset()
+    base_queryset = active_queryset.filter(Q(assignee=username) | Q(reporter=username))
     project_options = list(
         base_queryset.values("project_key")
-        .annotate(issue_count=Count("issue_key"))
+        .annotate(issue_count=Count("issue_key", distinct=True))
         .order_by("-issue_count", "project_key")
         .values_list("project_key", flat=True)
     )
@@ -179,35 +181,35 @@ def build_issue_filter_options(*, username):
         base_queryset.order_by("status").values_list("status", flat=True).distinct()
     )
     assignee_options = list(
-        JiraIssue.objects.exclude(assignee__isnull=True)
+        active_queryset.exclude(assignee__isnull=True)
         .exclude(assignee="")
         .order_by("assignee")
         .values_list("assignee", flat=True)
         .distinct()
     )
     reporter_options = list(
-        JiraIssue.objects.exclude(reporter__isnull=True)
+        active_queryset.exclude(reporter__isnull=True)
         .exclude(reporter="")
         .order_by("reporter")
         .values_list("reporter", flat=True)
         .distinct()
     )
     priority_options = list(
-        JiraIssue.objects.exclude(priority__isnull=True)
+        active_queryset.exclude(priority__isnull=True)
         .exclude(priority="")
         .order_by("priority")
         .values_list("priority", flat=True)
         .distinct()
     )
     sprint_options = list(
-        JiraIssue.objects.exclude(sprint__isnull=True)
+        active_queryset.exclude(sprint__isnull=True)
         .exclude(sprint="")
         .order_by("sprint")
         .values_list("sprint", flat=True)
         .distinct()
     )
     issue_type_options = list(
-        JiraIssue.objects.exclude(issue_type="")
+        active_queryset.exclude(issue_type="")
         .order_by("issue_type")
         .values_list("issue_type", flat=True)
         .distinct()
@@ -215,7 +217,7 @@ def build_issue_filter_options(*, username):
     label_options = sorted(
         {
             label
-            for labels in JiraIssue.objects.values_list("labels_json", flat=True)
+            for labels in active_queryset.values_list("labels_json", flat=True)
             for label in (labels or [])
             if label
         }
@@ -233,6 +235,28 @@ def build_issue_filter_options(*, username):
         "sort_field_options": VALID_SORT_FIELDS,
         "sort_order_options": VALID_SORT_ORDERS,
     }
+
+
+def active_policy_issue_queryset():
+    policy = current_global_sync_policy()
+    if policy is None or policy.current_version_id is None:
+        return JiraIssue.objects.none()
+    return JiraIssue.objects.filter(
+        is_active_in_current_policy=True,
+        sync_memberships__policy_version_id=policy.current_version_id,
+        sync_memberships__is_active=True,
+    ).distinct()
+
+
+def current_global_sync_policy():
+    queryset = (
+        GlobalSyncPolicy.objects.select_related("current_version")
+        .filter(current_version__isnull=False)
+    )
+    primary_policy = queryset.filter(name=PRIMARY_GLOBAL_SYNC_POLICY_NAME).first()
+    if primary_policy is not None:
+        return primary_policy
+    return queryset.order_by("id").first()
 
 
 def _normalize_list(value):

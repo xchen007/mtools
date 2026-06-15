@@ -6,15 +6,13 @@ from django.test import TestCase, override_settings
 from jira_workspace.models import (
     GlobalSyncPolicy,
     GlobalSyncPolicyVersion,
-    GlobalSyncPolicy,
-    GlobalSyncPolicyVersion,
     JiraIssue,
-    JiraIssueScopeMembership,
     JiraIssueSyncMembership,
     JiraIssueScopeMembership,
+    JiraScopeSyncReport,
+    OperationLog,
     JiraSyncProfile,
     JiraSyncRun,
-    SyncScope,
     SyncScope,
 )
 from jira_workspace.services.sync_service import ActiveFullSyncError, SyncService
@@ -138,6 +136,58 @@ class JiraWorkspaceSyncServiceTests(TestCase):
             is_system_scope=True,
         ).exists()
 
+    def test_configured_policy_scopes_create_expected_base_jql_without_root_defaults(self):
+        policy = GlobalSyncPolicy.objects.create(
+            name="Primary Jira Policy",
+            strategy_json={},
+            strategy_hash="old-hash",
+            status=GlobalSyncPolicy.Status.READY,
+        )
+
+        version = self.service.apply_policy_strategy(
+            policy=policy,
+            strategy_json={
+                "required_self": True,
+                "scopes": [
+                    {
+                        "scope_type": SyncScope.ScopeType.PROJECT,
+                        "name": "OPS",
+                        "project_key": "OPS",
+                    },
+                    {
+                        "scope_type": SyncScope.ScopeType.CUSTOM_JQL,
+                        "name": "Blocked OPS",
+                        "jql": '  project = "OPS" AND status = "Blocked"  ',
+                    },
+                    {
+                        "scope_type": SyncScope.ScopeType.ASSIGNEE_USER,
+                        "name": "Assigned xchen17",
+                        "username": "xchen17",
+                    },
+                    {
+                        "scope_type": SyncScope.ScopeType.LABEL,
+                        "name": "Ops Escalation",
+                        "label": "ops-escalation",
+                    },
+                ],
+            },
+        )
+
+        scopes_by_name = {
+            scope.name: scope
+            for scope in version.scopes.filter(is_system_scope=False)
+        }
+
+        assert scopes_by_name["OPS"].base_jql == 'project = "OPS"'
+        assert scopes_by_name["Blocked OPS"].base_jql == (
+            'project = "OPS" AND status = "Blocked"'
+        )
+        assert scopes_by_name["Assigned xchen17"].base_jql == 'assignee = "xchen17"'
+        assert scopes_by_name["Ops Escalation"].base_jql == 'labels = "ops-escalation"'
+        for scope in scopes_by_name.values():
+            assert "required_self" not in scope.config_json
+            assert "scopes" not in scope.config_json
+
     def test_unchanged_policy_strategy_returns_current_version_without_creating_new_version(self):
         policy = GlobalSyncPolicy.objects.create(
             name="Primary Jira Policy",
@@ -221,6 +271,142 @@ class JiraWorkspaceSyncServiceTests(TestCase):
             "Incremental scope sync requires a prior full sync.",
         ):
             self.service.run_scope_incremental(scope)
+
+    def test_failed_scope_sync_persists_failed_status_and_error_message(self):
+        _, _, scope = build_ready_self_scope()
+        self.adapter.fetch_issues.side_effect = RuntimeError("jira outage")
+
+        with self.assertRaisesMessage(RuntimeError, "jira outage"):
+            self.service.run_scope_incremental(scope)
+
+        scope.refresh_from_db()
+        assert scope.last_run_status == SyncScope.RunStatus.FAILED
+        assert scope.last_error_message == "jira outage"
+
+    def test_full_scope_sync_recomputes_cursor_from_returned_issues(self):
+        _, _, scope = build_ready_self_scope()
+        scope.last_issue_updated_cursor = "2026-06-16T01:00:00+00:00"
+        scope.save(update_fields=["last_issue_updated_cursor", "updated_at"])
+        self.adapter.fetch_issues.return_value = [
+            build_issue_payload(key="OPS-778", updated_at="2026-06-15T01:00:00+00:00")
+        ]
+
+        self.service.run_scope_full(scope)
+
+        scope.refresh_from_db()
+        assert scope.last_issue_updated_cursor == "2026-06-15T01:00:00+00:00"
+
+    def test_full_scope_sync_clears_cursor_when_no_issues_return(self):
+        _, _, scope = build_ready_self_scope()
+        scope.last_issue_updated_cursor = "2026-06-16T01:00:00+00:00"
+        scope.save(update_fields=["last_issue_updated_cursor", "updated_at"])
+        self.adapter.fetch_issues.return_value = []
+
+        self.service.run_scope_full(scope)
+
+        scope.refresh_from_db()
+        assert scope.last_issue_updated_cursor is None
+
+    def test_full_scope_sync_deactivates_missing_memberships(self):
+        _, version, scope = build_ready_self_scope()
+        issue = JiraIssue.objects.create(
+            issue_key="OPS-778",
+            project_key="OPS",
+            summary="Summary",
+            status="To Do",
+            assignee="xchen17",
+            reporter="reporter1",
+            priority="High",
+            updated_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            created_at=datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc),
+            sprint="Sprint 42",
+            raw_json='{"key":"OPS-778"}',
+            last_seen_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_checked_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_synced_success_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            is_active_in_current_policy=True,
+            first_seen_policy_version_id=version.id,
+            last_seen_policy_version_id=version.id,
+        )
+        membership = JiraIssueScopeMembership.objects.create(
+            issue=issue,
+            scope=scope,
+            policy_version=version,
+            first_seen_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_checked_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_synced_success_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_seen_issue_updated_at=issue.updated_at,
+            is_active=True,
+        )
+        self.adapter.fetch_issues.return_value = []
+
+        result = self.service.run_scope_full(scope)
+
+        membership.refresh_from_db()
+        assert result.deactivated_membership_count == 1
+        assert membership.is_active is False
+
+    def test_scope_sync_persists_run_report_counts(self):
+        _, version, scope = build_ready_self_scope()
+        issue = JiraIssue.objects.create(
+            issue_key="OPS-778",
+            project_key="OPS",
+            summary="Summary",
+            status="To Do",
+            assignee="xchen17",
+            reporter="reporter1",
+            priority="High",
+            updated_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            created_at=datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc),
+            sprint="Sprint 42",
+            raw_json='{"key":"OPS-778"}',
+            last_seen_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_checked_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_synced_success_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            is_active_in_current_policy=True,
+            first_seen_policy_version_id=version.id,
+            last_seen_policy_version_id=version.id,
+        )
+        JiraIssueScopeMembership.objects.create(
+            issue=issue,
+            scope=scope,
+            policy_version=version,
+            first_seen_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_checked_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_synced_success_at=datetime.fromisoformat("2026-06-15T01:00:00+00:00"),
+            last_seen_issue_updated_at=issue.updated_at,
+            is_active=True,
+        )
+        self.adapter.fetch_issues.return_value = []
+
+        self.service.run_scope_full(scope)
+
+        report = JiraScopeSyncReport.objects.get(scope=scope)
+        assert report.policy_version == version
+        assert report.run_type == JiraScopeSyncReport.RunType.FULL
+        assert report.status == JiraScopeSyncReport.Status.SUCCESS
+        assert report.fetched_count == 0
+        assert report.inserted_count == 0
+        assert report.updated_count == 0
+        assert report.unchanged_checked_count == 0
+        assert report.deactivated_membership_count == 1
+        assert report.effective_jql == scope.base_jql
+
+    def test_run_due_scopes_executes_queued_full_scope_reports(self):
+        _, _, scope = build_ready_self_scope()
+        scope.last_run_status = SyncScope.RunStatus.QUEUED_FULL
+        scope.next_run_at = datetime(2026, 6, 15, 1, 0, tzinfo=timezone.utc)
+        scope.save(update_fields=["last_run_status", "next_run_at", "updated_at"])
+        self.adapter.fetch_issues.return_value = []
+
+        reports = self.service.run_due_scopes(now=datetime(2026, 6, 15, 1, 30, tzinfo=timezone.utc))
+
+        scope.refresh_from_db()
+        assert len(reports) == 1
+        assert reports[0].scope == scope
+        assert reports[0].run_type == JiraScopeSyncReport.RunType.FULL
+        assert scope.last_run_status == SyncScope.RunStatus.SUCCESS
+        assert scope.next_run_at == datetime(2026, 6, 15, 2, 0, tzinfo=timezone.utc)
 
     def test_full_scope_sync_marks_issue_inactive_when_last_policy_membership_deactivates(self):
         _, version, scope = build_ready_self_scope()
@@ -459,6 +645,52 @@ class JiraWorkspaceSyncServiceTests(TestCase):
         assert result.inserted_count == 0
         assert result.updated_count == 0
         assert result.skipped_count == 1
+
+    def test_full_sync_refreshes_cached_fields_when_updated_at_is_unchanged(self):
+        JiraIssue.objects.create(
+            issue_key="SDSTOR-22591",
+            project_key="SDSTOR",
+            summary="Resolve stubborn heal issues",
+            status="Resolved",
+            assignee="xchen17",
+            reporter="xchen17",
+            priority="P3",
+            sprint="xchen17",
+            updated_at="2026-06-05T12:17:41+00:00",
+            created_at="2026-06-05T11:28:00+00:00",
+            raw_json='{"key":"SDSTOR-22591","version":"old"}',
+            last_seen_at="2026-06-15T05:13:51+00:00",
+        )
+        profile = JiraSyncProfile.objects.create(
+            name="My Issues",
+            profile_type=JiraSyncProfile.ProfileType.MY_ISSUES,
+            params_json={},
+            jql="",
+        )
+        self.adapter.fetch_current_user.return_value = "xchen17"
+        self.adapter.fetch_issues.return_value = [
+            {
+                **build_issue_payload(
+                    key="SDSTOR-22591",
+                    updated_at="2026-06-05T12:17:41+00:00",
+                    summary="Resolve stubborn heal issues",
+                    status="Resolved",
+                ),
+                "project_key": "SDSTOR",
+                "reporter": "xchen17",
+                "priority": "P3",
+                "sprint": "SDS-CP-Sprint11-2026",
+                "raw_json": '{"key":"SDSTOR-22591","version":"new"}',
+            }
+        ]
+
+        result = self.service.full_sync(profile)
+
+        issue = JiraIssue.objects.get(issue_key="SDSTOR-22591")
+        assert result.updated_count == 1
+        assert result.skipped_count == 0
+        assert issue.sprint == "SDS-CP-Sprint11-2026"
+        assert issue.raw_json == '{"key":"SDSTOR-22591","version":"new"}'
 
     def test_build_jql_differs_for_supported_profile_types(self):
         my_profile = JiraSyncProfile(
@@ -767,7 +999,25 @@ class JiraWorkspaceSyncServiceTests(TestCase):
 
         assert run.status == JiraSyncRun.Status.QUEUED
         assert run.run_type == JiraSyncRun.RunType.FULL
+        assert run.progress_message == "Queued"
         self.adapter.fetch_issues.assert_not_called()
+
+    def test_enqueue_sync_allows_incremental_when_no_active_full_run_exists(self):
+        profile = JiraSyncProfile.objects.create(
+            name="My Issues",
+            profile_type=JiraSyncProfile.ProfileType.MY_ISSUES,
+            params_json={},
+            jql="",
+        )
+
+        run = self.service.enqueue_sync(
+            profile,
+            JiraSyncRun.RunType.INCREMENTAL,
+            start_background=False,
+        )
+
+        assert run.run_type == JiraSyncRun.RunType.INCREMENTAL
+        assert run.status == JiraSyncRun.Status.QUEUED
 
     def test_enqueue_sync_rejects_incremental_when_full_run_is_queued(self):
         profile = JiraSyncProfile.objects.create(
@@ -781,7 +1031,10 @@ class JiraWorkspaceSyncServiceTests(TestCase):
             run_type=JiraSyncRun.RunType.FULL,
             status=JiraSyncRun.Status.QUEUED,
             started_at=datetime.now(timezone.utc),
+            progress_message="Queued",
         )
+
+        before_count = JiraSyncRun.objects.count()
 
         with self.assertRaises(ActiveFullSyncError):
             self.service.enqueue_sync(
@@ -789,6 +1042,8 @@ class JiraWorkspaceSyncServiceTests(TestCase):
                 JiraSyncRun.RunType.INCREMENTAL,
                 start_background=False,
             )
+
+        assert JiraSyncRun.objects.count() == before_count
 
     def test_enqueue_sync_rejects_full_when_another_full_run_is_running(self):
         profile = JiraSyncProfile.objects.create(
@@ -802,7 +1057,10 @@ class JiraWorkspaceSyncServiceTests(TestCase):
             run_type=JiraSyncRun.RunType.FULL,
             status=JiraSyncRun.Status.RUNNING,
             started_at=datetime.now(timezone.utc),
+            progress_message="Fetched 10 issues.",
         )
+
+        before_count = JiraSyncRun.objects.count()
 
         with self.assertRaises(ActiveFullSyncError):
             self.service.enqueue_sync(
@@ -810,6 +1068,64 @@ class JiraWorkspaceSyncServiceTests(TestCase):
                 JiraSyncRun.RunType.FULL,
                 start_background=False,
             )
+
+        assert JiraSyncRun.objects.count() == before_count
+
+    def test_sync_progress_updates_run_during_fetch(self):
+        profile = JiraSyncProfile.objects.create(
+            name="Project TESS",
+            profile_type=JiraSyncProfile.ProfileType.PROJECT,
+            params_json={"project_key": "TESS"},
+            jql="",
+        )
+
+        def fetch_issues(jql, progress_callback=None):
+            progress_callback(1, 2)
+            progress_callback(2, 2)
+            return [
+                build_issue_payload(
+                    key="TESS-999",
+                    updated_at="2026-06-12T08:30:00+00:00",
+                ),
+                build_issue_payload(
+                    key="TESS-1000",
+                    updated_at="2026-06-12T09:30:00+00:00",
+                ),
+            ]
+
+        self.adapter.fetch_issues.side_effect = fetch_issues
+
+        self.service.full_sync(profile)
+
+        run = JiraSyncRun.objects.get(profile=profile)
+        assert run.progress_current_count == 2
+        assert run.progress_total_count == 2
+        assert run.progress_message == "Stored 2 fetched issues."
+
+    def test_full_sync_creates_success_operation_log(self):
+        profile = JiraSyncProfile.objects.create(
+            name="Project TESS",
+            profile_type=JiraSyncProfile.ProfileType.PROJECT,
+            params_json={"project_key": "TESS"},
+            jql="",
+        )
+        self.adapter.fetch_issues.return_value = [
+            build_issue_payload(
+                key="TESS-999",
+                updated_at="2026-06-12T08:30:00+00:00",
+            )
+        ]
+
+        self.service.full_sync(profile)
+
+        log = OperationLog.objects.get(
+            tool=OperationLog.Tool.JIRA_SYNC,
+            action=JiraSyncRun.RunType.FULL,
+        )
+        assert log.status == OperationLog.Status.SUCCESS
+        assert "Fetched 1 issues" in log.result_summary
+        assert log.target_type == "jira_sync_profile"
+        assert log.target_id == str(profile.id)
 
     def test_sync_status_reports_external_blocker_for_403_failure(self):
         profile = JiraSyncProfile.objects.create(
@@ -855,14 +1171,12 @@ class JiraWorkspaceSyncServiceTests(TestCase):
         assert status["blocker_message"] == "External Jira access is currently blocked."
 
     @override_settings(
-        JIRA_SIMULATION_MODE=True,
-        JIRA_SIMULATION_SCENARIO="default",
         JIRA_API_BASE_URL="https://jira.example.com",
         JIRA_API_TOKEN="token",
     )
-    def test_jira_client_uses_fake_adapter_when_simulation_mode_enabled(self):
+    def test_jira_client_uses_live_adapter_from_configured_settings(self):
         service = SyncService()
 
         adapter = service._jira_client()
 
-        assert adapter.__class__.__name__ == "FakeJiraAdapter"
+        assert adapter.__class__.__name__ == "JiraAdapter"

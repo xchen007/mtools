@@ -1,11 +1,16 @@
+from datetime import timedelta
+
 from django.db import IntegrityError, transaction
 from django.test import TestCase
+from django.utils import timezone
 
 from jira_workspace.models import (
     IntegrationContract,
     IntegrationScanRun,
     IntegrationTool,
+    OperationLog,
     JiraIssue,
+    JiraConnection,
     JiraSavedQuery,
     JiraSyncProfile,
     JiraSyncRun,
@@ -16,6 +21,55 @@ from jira_workspace.models import (
 
 
 class JiraWorkspaceModelTests(TestCase):
+    def test_operation_log_has_expected_defaults(self):
+        log = OperationLog.objects.create(
+            tool=OperationLog.Tool.JIRA_QUERY,
+            action="run_card",
+            title="Assigned to me",
+            triggered_by="xchen17",
+            started_at=timezone.now(),
+        )
+
+        assert log.status == OperationLog.Status.RUNNING
+        assert log.request_payload_json == {}
+        assert log.result_summary == ""
+        assert log.error_message == ""
+        assert log.log_text == ""
+
+    def test_operation_logs_order_newest_first(self):
+        older = OperationLog.objects.create(
+            tool=OperationLog.Tool.JIRA_SYNC,
+            action="full_sync",
+            title="OPS Full Sync",
+            triggered_by="xchen17",
+            started_at=timezone.now() - timedelta(hours=1),
+        )
+        newer = OperationLog.objects.create(
+            tool=OperationLog.Tool.SYNC2POD,
+            action="start_sync",
+            title="Primary Pod",
+            triggered_by="xchen17",
+            started_at=timezone.now(),
+        )
+
+        assert list(OperationLog.objects.values_list("id", flat=True)[:2]) == [
+            newer.id,
+            older.id,
+        ]
+
+    def test_jira_connection_masks_token_and_tracks_health_status(self):
+        connection = JiraConnection.objects.create(
+            base_url="https://jira.example.com",
+            api_token="secret-token",
+            auth_type=JiraConnection.AuthType.BEARER,
+            last_check_status=JiraConnection.CheckStatus.OK,
+            last_check_message="Connected as xchen17.",
+        )
+
+        assert str(connection) == "https://jira.example.com"
+        assert connection.masked_token == "********oken"
+        assert JiraConnection.objects.active().get() == connection
+
     def test_issue_string_representation_uses_issue_key(self):
         issue = JiraIssue.objects.create(
             issue_key="TESS-321",
@@ -109,6 +163,8 @@ class JiraWorkspaceModelTests(TestCase):
             "reporter",
             "priority",
             "updated_at",
+            "sprint",
+            "created_at",
         ]
         assert query.default_page_size == 25
         assert query.position == 0

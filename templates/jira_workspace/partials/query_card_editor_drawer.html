@@ -1,0 +1,201 @@
+<div class="query-card-editor{% if query_card_editor_open %} is-open{% endif %}" data-query-card-editor data-editor-open="{% if query_card_editor_open %}true{% else %}false{% endif %}" aria-hidden="{% if query_card_editor_open %}false{% else %}true{% endif %}">
+  <div class="query-card-editor__scrim" data-query-card-editor-close></div>
+  <aside class="query-card-editor__panel query-card-editor__panel--modal" role="dialog" aria-modal="true" aria-labelledby="query-card-editor-title">
+    <header class="query-card-editor__header">
+      <div>
+        <p class="query-card-editor__eyebrow">Query Card</p>
+        <h2 id="query-card-editor-title">{% if query_card_form_action == "create_card" %}New Query Card{% elif selected_card %}Edit Query Card{% else %}New Query Card{% endif %}</h2>
+      </div>
+      <button class="query-card-editor__close" type="button" data-query-card-editor-close aria-label="Close query card editor">x</button>
+    </header>
+
+    <form method="post" action="{% url 'jira_workspace:query' %}" class="query-card-editor__form">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="{{ query_card_form_action|default:'update_card' }}">
+      {% if selected_card and query_card_form_action != "create_card" %}
+        <input type="hidden" name="card_id" value="{{ selected_card.id }}">
+      {% endif %}
+
+      {% if query_form.errors %}
+        <div class="form-errors" role="alert">{{ query_form.errors }}</div>
+      {% endif %}
+
+      <section class="query-card-editor__section">
+        <div class="query-card-editor__grid">
+          <label>
+            <span>Name</span>
+            <input type="text" name="name" value="{{ query_form.name.value|default:'' }}" required autocomplete="off">
+          </label>
+          <label>
+            <span>Profile</span>
+            <select name="profile" required>
+              {% for value, label in query_form.fields.profile.choices %}
+                <option value="{{ value }}"{% if query_form.profile.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <label>
+          <span>Description</span>
+          <input type="text" name="description" value="{{ query_form.description.value|default:'' }}" autocomplete="off">
+        </label>
+      </section>
+
+      <section class="query-card-editor__section">
+        <div class="query-card-editor__grid">
+          <label>
+            <span>Created by</span>
+            <input type="text" name="reporter_value" value="{{ query_form.reporter_value.value|default:'' }}" list="query-card-people-options" autocomplete="off">
+          </label>
+          <label>
+            <span>Assigned by</span>
+            <input type="text" name="assignee_value" value="{{ query_form.assignee_value.value|default:'' }}" list="query-card-people-options" autocomplete="off">
+          </label>
+        </div>
+        <div class="query-card-editor__grid">
+          <label>
+            <span>Project</span>
+            <input type="text" name="project_values" value="{{ query_form.project_values.value|default:'' }}" placeholder="OPS, TESS" list="query-card-project-options" autocomplete="off">
+          </label>
+          <label>
+            <span>Labels</span>
+            <input type="text" name="label_values" value="{{ query_form.label_values.value|default:'' }}" placeholder="backend, urgent" list="query-card-label-options" autocomplete="off">
+          </label>
+        </div>
+        <div class="query-card-editor__grid">
+          <label>
+            <span>Sprint</span>
+            <input type="text" name="sprint_value" value="{{ query_form.sprint_value.value|default:'' }}" list="query-card-sprint-options" autocomplete="off">
+          </label>
+          <label>
+            <span>Ticket type</span>
+            <input type="text" name="issue_type_values" value="{{ query_form.issue_type_values.value|default:'' }}" placeholder="Bug, Task" list="query-card-issue-type-options" autocomplete="off">
+          </label>
+        </div>
+        <label>
+          <span>Priority</span>
+          <input type="text" name="priority_values" value="{{ query_form.priority_values.value|default:'' }}" placeholder="High, Highest" list="query-card-priority-options" autocomplete="off">
+        </label>
+      </section>
+
+      <section class="query-card-editor__section query-card-editor__section--advanced">
+        <div class="query-card-editor__grid">
+          <label>
+            <span>Card type</span>
+            <select name="card_kind">
+              {% for value, label in query_form.fields.card_kind.choices %}
+                <option value="{{ value }}"{% if query_form.card_kind.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            <span>Query syntax</span>
+            <select name="query_syntax">
+              {% for value, label in query_form.fields.query_syntax.choices %}
+                <option value="{{ value }}"{% if query_form.query_syntax.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <div class="query-card-editor__grid">
+          <label>
+            <span>Status filters</span>
+            <input type="text" name="status_values" value="{{ query_form.status_values.value|default:'' }}" placeholder="Blocked, Review" list="query-card-status-options" autocomplete="off">
+          </label>
+          <label>
+            <span>Search text</span>
+            <input type="text" name="search_value" value="{{ query_form.search_value.value|default:'' }}" autocomplete="off">
+          </label>
+        </div>
+        <label>
+          <span>Query text</span>
+          <textarea name="jql_text" rows="3">{{ query_form.jql_text.value|default:'' }}</textarea>
+        </label>
+        <div class="query-card-editor__grid">
+          <label>
+            <span>Summary metrics</span>
+            <input type="text" name="summary_metric_values" value="{{ query_form.summary_metric_values.value|default:'' }}" autocomplete="off">
+          </label>
+          <div class="query-card-column-editor" data-query-card-column-editor>
+            <div class="query-card-column-editor__head">
+              <span>Default columns</span>
+              <small>Checked columns display in this order.</small>
+            </div>
+            <input type="hidden" name="default_column_values" value="{{ query_form.default_column_values.value|default:'' }}" data-query-card-column-values>
+            <div class="query-card-column-editor__list">
+              {% for column in query_form.column_choices %}
+                <div class="query-card-column-editor__item" data-column-key="{{ column.value }}">
+                  <label>
+                    <input type="checkbox" data-column-enabled value="{{ column.value }}"{% if column.checked %} checked{% endif %}>
+                    <span>{{ column.label }}</span>
+                  </label>
+                  <div class="query-card-column-editor__actions" aria-label="Move {{ column.label }}">
+                    <button type="button" data-column-move="up" aria-label="Move {{ column.label }} up">Up</button>
+                    <button type="button" data-column-move="down" aria-label="Move {{ column.label }} down">Down</button>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        <div class="query-card-editor__grid">
+          <label>
+            <span>Default page size</span>
+            <input type="number" name="default_page_size" min="10" max="200" value="{{ query_form.default_page_size.value|default:25 }}">
+          </label>
+          <label>
+            <span>Sort by</span>
+            <select name="sort_by">
+              {% for value, label in query_form.fields.sort_by.choices %}
+                <option value="{{ value }}"{% if query_form.sort_by.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <label>
+          <span>Sort order</span>
+          <select name="sort_order">
+            {% for value, label in query_form.fields.sort_order.choices %}
+              <option value="{{ value }}"{% if query_form.sort_order.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </section>
+
+      <div class="query-card-editor__checks">
+        <label><input type="checkbox" name="is_pinned" {% if query_form.is_pinned.value %}checked{% endif %}> <span>Pinned</span></label>
+        <label><input type="checkbox" name="is_starred" {% if query_form.is_starred.value %}checked{% endif %}> <span>Starred</span></label>
+      </div>
+      <footer class="query-card-editor__footer">
+        {% if selected_card and query_card_form_action != "create_card" %}
+          <button class="query-card-editor__delete" type="submit" name="action" value="delete_card">Delete</button>
+        {% endif %}
+        <button class="workspace-control" type="button" data-query-card-editor-close>Cancel</button>
+        <button class="workspace-control workspace-control--primary" type="submit">Save card</button>
+      </footer>
+    </form>
+
+    <datalist id="query-card-people-options">
+      {% for value in query_card_filter_options.reporter_options %}<option value="{{ value }}">{% endfor %}
+      {% for value in query_card_filter_options.assignee_options %}<option value="{{ value }}">{% endfor %}
+    </datalist>
+    <datalist id="query-card-project-options">
+      {% for value in query_card_filter_options.project_options %}<option value="{{ value }}">{% endfor %}
+    </datalist>
+    <datalist id="query-card-label-options">
+      {% for value in query_card_filter_options.label_options %}<option value="{{ value }}">{% endfor %}
+    </datalist>
+    <datalist id="query-card-sprint-options">
+      {% for value in query_card_filter_options.sprint_options %}<option value="{{ value }}">{% endfor %}
+    </datalist>
+    <datalist id="query-card-issue-type-options">
+      {% for value in query_card_filter_options.issue_type_options %}<option value="{{ value }}">{% endfor %}
+    </datalist>
+    <datalist id="query-card-priority-options">
+      {% for value in query_card_filter_options.priority_options %}<option value="{{ value }}">{% endfor %}
+    </datalist>
+    <datalist id="query-card-status-options">
+      {% for value in query_card_filter_options.status_options %}<option value="{{ value }}">{% endfor %}
+    </datalist>
+  </aside>
+</div>

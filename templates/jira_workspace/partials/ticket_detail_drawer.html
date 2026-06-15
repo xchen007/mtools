@@ -1,0 +1,56 @@
+<div class="ticket-drawer" data-ticket-drawer aria-hidden="true">
+  <div class="ticket-drawer__scrim" data-ticket-drawer-close></div>
+  <aside class="ticket-drawer__panel" role="dialog" aria-modal="true" aria-labelledby="ticket-drawer-title">
+    <div class="ticket-drawer__header">
+      <div>
+        <div class="ticket-drawer__eyebrow" data-ticket-drawer-project>-</div>
+        <h2 class="ticket-drawer__title" id="ticket-drawer-title" data-ticket-drawer-key>Ticket</h2>
+      </div>
+      <button class="ticket-drawer__close" type="button" data-ticket-drawer-close aria-label="Close ticket detail">×</button>
+    </div>
+    <p class="ticket-drawer__summary" data-ticket-drawer-summary>Select a ticket to inspect details.</p>
+    <div class="ticket-drawer__actions">
+      <button type="button" data-ticket-copy-active-key>Copy key</button>
+      <a data-ticket-open-external href="#" target="_blank" rel="noreferrer">Open</a>
+    </div>
+    <div class="ticket-drawer__tabs" role="tablist">
+      <button type="button" class="is-active" data-ticket-drawer-tab="properties">Properties</button>
+      <button type="button" data-ticket-drawer-tab="activity">Activity</button>
+    </div>
+    <section class="ticket-drawer__tab-panel" data-ticket-drawer-panel="properties">
+      <dl class="ticket-drawer__meta">
+        <div>
+          <dt>Status</dt>
+          <dd data-ticket-drawer-status>-</dd>
+        </div>
+        <div>
+          <dt>Assignee</dt>
+          <dd data-ticket-drawer-assignee>-</dd>
+        </div>
+        <div>
+          <dt>Reporter</dt>
+          <dd data-ticket-drawer-reporter>-</dd>
+        </div>
+        <div>
+          <dt>Priority</dt>
+          <dd data-ticket-drawer-priority>-</dd>
+        </div>
+        <div>
+          <dt>Sprint</dt>
+          <dd data-ticket-drawer-sprint>-</dd>
+        </div>
+        <div>
+          <dt>Created</dt>
+          <dd data-ticket-drawer-created>-</dd>
+        </div>
+        <div>
+          <dt>Updated</dt>
+          <dd data-ticket-drawer-updated>-</dd>
+        </div>
+      </dl>
+    </section>
+    <section class="ticket-drawer__tab-panel" data-ticket-drawer-panel="activity" hidden>
+      <p class="ticket-drawer__empty">Activity will appear here when Jira history is synced.</p>
+    </section>
+  </aside>
+</div>

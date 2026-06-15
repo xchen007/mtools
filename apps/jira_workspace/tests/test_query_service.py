@@ -2,7 +2,13 @@ from datetime import datetime, timedelta, timezone
 
 from django.test import TestCase
 
-from jira_workspace.models import JiraIssue
+from jira_workspace.models import (
+    GlobalSyncPolicy,
+    GlobalSyncPolicyVersion,
+    JiraIssue,
+    JiraIssueScopeMembership,
+    SyncScope,
+)
 from jira_workspace.services.query_service import (
     build_issue_filter_options,
     build_issue_queryset,
@@ -10,10 +16,100 @@ from jira_workspace.services.query_service import (
 from jira_workspace.services.stats_service import build_dashboard_project_groups
 
 
+def create_current_policy_scope():
+    policy = GlobalSyncPolicy.objects.create(
+        name="Primary Jira Policy",
+        strategy_json={"required_self": True, "scopes": []},
+        strategy_hash="hash-v1",
+        status=GlobalSyncPolicy.Status.READY,
+    )
+    version = GlobalSyncPolicyVersion.objects.create(
+        policy=policy,
+        version_no=1,
+        strategy_hash="hash-v1",
+        status=GlobalSyncPolicyVersion.Status.READY,
+        full_sync_required=False,
+    )
+    policy.current_version = version
+    policy.save(update_fields=["current_version", "updated_at"])
+    scope = SyncScope.objects.create(
+        policy_version=version,
+        scope_type=SyncScope.ScopeType.SELF_REQUIRED,
+        name="My Assigned or Reported Issues",
+        is_required=True,
+        is_enabled=True,
+        is_system_scope=True,
+        schedule_minutes=30,
+        config_json={"mode": "self"},
+        base_jql="assignee = currentUser() OR reporter = currentUser()",
+        next_run_at=datetime.now(timezone.utc),
+    )
+    return policy, version, scope
+
+
+def add_policy_membership(*, issue, scope, version, is_active=True):
+    JiraIssueScopeMembership.objects.create(
+        issue=issue,
+        scope=scope,
+        policy_version=version,
+        first_seen_at=datetime.now(timezone.utc),
+        last_checked_at=datetime.now(timezone.utc),
+        last_synced_success_at=datetime.now(timezone.utc),
+        last_seen_issue_updated_at=issue.updated_at,
+        is_active=is_active,
+    )
+
+
+def build_policy_scoped_issues():
+    _, version, scope = create_current_policy_scope()
+    active_issue = JiraIssue.objects.create(
+        issue_key="OPS-100",
+        project_key="OPS",
+        summary="Active issue",
+        status="In Progress",
+        assignee="xchen17",
+        reporter="amy",
+        priority="High",
+        updated_at=datetime(2026, 6, 15, 1, 0, tzinfo=timezone.utc),
+        created_at=datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc),
+        raw_json="{}",
+        last_seen_at=datetime(2026, 6, 15, 1, 0, tzinfo=timezone.utc),
+        is_active_in_current_policy=True,
+    )
+    inactive_issue = JiraIssue.objects.create(
+        issue_key="AAA-100",
+        project_key="AAA",
+        summary="Inactive issue",
+        status="To Do",
+        assignee="xchen17",
+        reporter="amy",
+        priority="Low",
+        updated_at=datetime(2026, 6, 15, 2, 0, tzinfo=timezone.utc),
+        created_at=datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc),
+        raw_json="{}",
+        last_seen_at=datetime(2026, 6, 15, 2, 0, tzinfo=timezone.utc),
+        is_active_in_current_policy=True,
+    )
+    add_policy_membership(
+        issue=active_issue,
+        scope=scope,
+        version=version,
+        is_active=True,
+    )
+    add_policy_membership(
+        issue=inactive_issue,
+        scope=scope,
+        version=version,
+        is_active=False,
+    )
+    return active_issue, inactive_issue, version
+
+
 class JiraWorkspaceQueryServiceTests(TestCase):
     def setUp(self):
         self.now = datetime.now(timezone.utc)
-        JiraIssue.objects.create(
+        _, self.version, self.scope = create_current_policy_scope()
+        self.assigned_issue = JiraIssue.objects.create(
             issue_key="TESS-321",
             project_key="TESS",
             summary="Assigned issue",
@@ -29,7 +125,7 @@ class JiraWorkspaceQueryServiceTests(TestCase):
             raw_json="{}",
             last_seen_at=self.now,
         )
-        JiraIssue.objects.create(
+        self.reported_issue = JiraIssue.objects.create(
             issue_key="OPS-778",
             project_key="OPS",
             summary="Reported issue",
@@ -45,7 +141,7 @@ class JiraWorkspaceQueryServiceTests(TestCase):
             raw_json="{}",
             last_seen_at=self.now,
         )
-        JiraIssue.objects.create(
+        self.older_assigned_issue = JiraIssue.objects.create(
             issue_key="TESS-400",
             project_key="TESS",
             summary="Older assigned alpha",
@@ -61,7 +157,7 @@ class JiraWorkspaceQueryServiceTests(TestCase):
             raw_json="{}",
             last_seen_at=self.now,
         )
-        JiraIssue.objects.create(
+        self.created_alpha_issue = JiraIssue.objects.create(
             issue_key="AAA-100",
             project_key="AAA",
             summary="Created alpha",
@@ -77,7 +173,7 @@ class JiraWorkspaceQueryServiceTests(TestCase):
             raw_json="{}",
             last_seen_at=self.now,
         )
-        JiraIssue.objects.create(
+        self.other_team_issue = JiraIssue.objects.create(
             issue_key="OPS-900",
             project_key="OPS",
             summary="Other team issue",
@@ -93,6 +189,105 @@ class JiraWorkspaceQueryServiceTests(TestCase):
             raw_json="{}",
             last_seen_at=self.now,
         )
+        for issue in [
+            self.assigned_issue,
+            self.reported_issue,
+            self.older_assigned_issue,
+            self.created_alpha_issue,
+            self.other_team_issue,
+        ]:
+            add_policy_membership(
+                issue=issue,
+                scope=self.scope,
+                version=self.version,
+                is_active=True,
+            )
+
+    def test_build_issue_queryset_excludes_inactive_membership_rows_by_default(self):
+        GlobalSyncPolicy.objects.all().delete()
+        JiraIssue.objects.all().delete()
+        active_issue, _, _ = build_policy_scoped_issues()
+
+        queryset = build_issue_queryset(username="xchen17")
+
+        assert list(queryset.values_list("issue_key", flat=True)) == [active_issue.issue_key]
+
+    def test_build_issue_queryset_uses_only_current_policy_version_memberships(self):
+        active_issue = self.assigned_issue
+        stale_only_issue = JiraIssue.objects.create(
+            issue_key="OLD-100",
+            project_key="OLD",
+            summary="Old policy only",
+            status="In Progress",
+            assignee="xchen17",
+            reporter="amy",
+            priority="Low",
+            updated_at=self.now,
+            created_at=self.now,
+            raw_json="{}",
+            last_seen_at=self.now,
+            is_active_in_current_policy=True,
+        )
+        stale_policy = GlobalSyncPolicy.objects.create(
+            name="Stale Jira Policy",
+            strategy_json={"required_self": True, "scopes": []},
+            strategy_hash="hash-stale",
+            status=GlobalSyncPolicy.Status.STALE,
+        )
+        stale_version = GlobalSyncPolicyVersion.objects.create(
+            policy=stale_policy,
+            version_no=1,
+            strategy_hash="hash-stale",
+            status=GlobalSyncPolicyVersion.Status.STALE,
+            full_sync_required=True,
+        )
+        stale_policy.current_version = stale_version
+        stale_policy.save(update_fields=["current_version", "updated_at"])
+        stale_scope = SyncScope.objects.create(
+            policy_version=stale_version,
+            scope_type=SyncScope.ScopeType.PROJECT,
+            name="Stale TESS",
+            is_enabled=True,
+            schedule_minutes=30,
+            config_json={"project_key": "TESS"},
+            base_jql='project = "TESS"',
+            next_run_at=self.now,
+        )
+        add_policy_membership(
+            issue=active_issue,
+            scope=stale_scope,
+            version=stale_version,
+            is_active=True,
+        )
+        add_policy_membership(
+            issue=stale_only_issue,
+            scope=stale_scope,
+            version=stale_version,
+            is_active=True,
+        )
+        queryset = build_issue_queryset(username="xchen17", source="assigned")
+
+        issue_keys = list(queryset.values_list("issue_key", flat=True))
+        assert issue_keys.count("TESS-321") == 1
+        assert "OLD-100" not in issue_keys
+
+    def test_build_issue_queryset_returns_empty_when_no_current_policy_version_exists(self):
+        GlobalSyncPolicy.objects.all().delete()
+        self.assigned_issue.is_active_in_current_policy = True
+        self.assigned_issue.save(update_fields=["is_active_in_current_policy"])
+
+        queryset = build_issue_queryset(username="xchen17", source="assigned")
+
+        assert list(queryset.values_list("issue_key", flat=True)) == []
+
+    def test_build_issue_filter_options_counts_only_current_policy_active_issues(self):
+        GlobalSyncPolicy.objects.all().delete()
+        JiraIssue.objects.all().delete()
+        build_policy_scoped_issues()
+
+        options = build_issue_filter_options(username="xchen17")
+
+        assert options["project_options"] == ["OPS"]
 
     def test_build_issue_queryset_filters_by_source_semantics(self):
         qs = build_issue_queryset(
@@ -218,3 +413,26 @@ class JiraWorkspaceQueryServiceTests(TestCase):
             {"project_key": "AAA", "issue_count": 1},
             {"project_key": "OPS", "issue_count": 1},
         ]
+
+    def test_build_dashboard_project_groups_does_not_double_count_multi_scope_issues(self):
+        extra_scope = SyncScope.objects.create(
+            policy_version=self.version,
+            scope_type=SyncScope.ScopeType.PROJECT,
+            name="TESS",
+            is_enabled=True,
+            schedule_minutes=30,
+            config_json={"project_key": "TESS"},
+            base_jql='project = "TESS"',
+            next_run_at=self.now,
+        )
+        add_policy_membership(
+            issue=self.assigned_issue,
+            scope=extra_scope,
+            version=self.version,
+            is_active=True,
+        )
+
+        groups = build_dashboard_project_groups(username="xchen17")
+
+        assert groups["assigned"][0]["project_key"] == "TESS"
+        assert groups["assigned"][0]["issue_count"] == 2

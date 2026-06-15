@@ -6,6 +6,60 @@
 <section class="query-workbench page-section">
   <section class="query-workbench__main">
     {% if selected_card %}
+      {% if not jira_has_cached_data %}
+        <section class="panel">
+          <div class="panel__header">
+            <h2 class="section-title">Jira Data Status</h2>
+            <span class="status-pill {% if has_external_blocker %}status-pill--failed{% else %}status-pill--neutral{% endif %}">
+              {% if has_external_blocker %}{{ jira_blocker_message }}{% else %}Sync required{% endif %}
+            </span>
+          </div>
+          <div class="recent-list">
+            <article class="recent-item">
+              <div class="recent-item__top">
+                <span class="issue-key">
+                  {% if has_external_blocker %}
+                    External Jira access is currently blocked
+                  {% else %}
+                    Run Jira Sync to populate Query Results
+                  {% endif %}
+                </span>
+                <span class="issue-status">{% if has_external_blocker %}No Cache{% else %}Empty Cache{% endif %}</span>
+              </div>
+              <div class="recent-item__summary">
+                No cached Jira issues are available yet.
+                {% if jira_latest_failure and jira_latest_failure.error_message %}
+                  {{ jira_latest_failure.error_message }}
+                {% else %}
+                  Open Jira Sync to fetch your assigned issues into the local cache.
+                {% endif %}
+              </div>
+            </article>
+          </div>
+        </section>
+      {% endif %}
+
+      {% if sync_policy %}
+        <section class="panel">
+          <div class="panel__header">
+            <h2 class="section-title">Current Policy Version</h2>
+            <span class="status-pill status-pill--{% if sync_policy.status == 'ready' %}success{% elif sync_required_failures %}failed{% else %}neutral{% endif %}">
+              {{ sync_policy.get_status_display }}
+            </span>
+          </div>
+          <dl class="meta-grid">
+            <div>
+              <dt>Version</dt>
+              <dd>v{{ sync_policy_version.version_no }}</dd>
+            </div>
+            <div>
+              <dt>Last Successful Check</dt>
+              <dd>{{ sync_latest_successful_check|date:"Y-m-d H:i"|default:"-" }}</dd>
+            </div>
+          </dl>
+        </section>
+      {% endif %}
+
       {% include "jira_workspace/partials/query_card_header.html" with selected_card=selected_card %}
 
       <section class="query-card-config-strip" aria-label="Selected card configuration">
@@ -37,10 +91,47 @@
 
       <section class="panel dashboard-main query-workbench__results">
         <div class="panel__header">
-          <h2 class="section-title">Query Results</h2>
-          {% include "jira_workspace/partials/query_card_summary.html" with metrics=query_card_metrics %}
+          <div class="query-results-heading">
+            <h2 class="section-title">Query Results</h2>
+            <div class="query-results-switcher" role="tablist" aria-label="Query results view">
+              <button
+                type="button"
+                class="query-results-switcher__tab is-active"
+                data-query-results-view-tab="results"
+                data-query-results-target="results"
+                aria-selected="true"
+              >
+                Results
+              </button>
+              <button
+                type="button"
+                class="query-results-switcher__tab"
+                data-query-results-view-tab="logs"
+                data-query-results-target="logs"
+                aria-selected="false"
+              >
+                Logs
+              </button>
+            </div>
+          </div>
+          <div class="query-results-summary" data-query-results-summary>
+            {% include "jira_workspace/partials/query_card_summary.html" with metrics=query_card_metrics %}
+          </div>
         </div>
-        {% include "jira_workspace/partials/ticket_table.html" with ticket_rows=query_rows rich_table_id="jira-query-results" rich_table_persist_scope=query_card_persistence_scope rich_table_row_click="drawer" rich_table_page_size=selected_card.default_page_size rich_table_fill_height=True %}
+        <div
+          class="query-results-panel"
+          data-query-results-panel="results"
+          data-view-active="true"
+        >
+          {% include "jira_workspace/partials/ticket_table.html" with ticket_rows=query_rows rich_table_id="jira-query-results" rich_table_persist_scope=query_card_persistence_scope rich_table_row_click="drawer" rich_table_page_size=selected_card.default_page_size rich_table_fill_height=True rich_table_default_columns=selected_card.default_columns_json|join:"," %}
+        </div>
+        <div
+          class="query-results-panel query-results-panel--logs"
+          data-query-results-panel="logs"
+          hidden
+        >
+          {% include "jira_workspace/partials/operation_log_list.html" with operation_logs=recent_operation_logs %}
+        </div>
       </section>
     {% else %}
       <section class="panel query-workbench__empty">

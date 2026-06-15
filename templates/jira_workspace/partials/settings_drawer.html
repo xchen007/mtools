@@ -1,0 +1,207 @@
+<aside
+  id="workspace-settings-drawer"
+  class="settings-drawer"
+  data-settings-drawer
+  aria-hidden="true"
+>
+  <div class="settings-drawer__scrim" data-settings-close aria-hidden="true"></div>
+  <section class="settings-drawer__panel" role="dialog" aria-modal="true" aria-labelledby="workspace-settings-title">
+    <header class="settings-drawer__header">
+      <div>
+        <p class="settings-drawer__eyebrow">Workspace</p>
+        <h2 id="workspace-settings-title" class="settings-drawer__title">Settings</h2>
+      </div>
+      <button class="settings-drawer__close" type="button" data-settings-close aria-label="Close settings">×</button>
+    </header>
+
+    <div class="settings-drawer__body">
+      <form class="settings-form" data-settings-form>
+        <section class="settings-section" data-setting-scope="global">
+          <div class="settings-section__header">
+            <h3>Global Defaults</h3>
+            <span>Applied to every tool unless overridden.</span>
+          </div>
+          <label class="settings-field">
+            <span>Default tool</span>
+            <select name="default_tool" data-setting-key="defaultTool">
+              <option value="workspace">Workspace</option>
+              <option value="jira">Jira</option>
+              <option value="sync2pod">sync2pod</option>
+              <option value="integrations">Integrations</option>
+            </select>
+          </label>
+          <label class="settings-field">
+            <span>Refresh interval</span>
+            <select name="refresh_interval" data-setting-key="refreshInterval">
+              <option value="manual">Manual</option>
+              <option value="2500">2.5 seconds</option>
+              <option value="5000">5 seconds</option>
+              <option value="15000">15 seconds</option>
+            </select>
+          </label>
+          <label class="settings-field settings-field--inline">
+            <input type="checkbox" name="compact_tables" data-setting-key="compactTables">
+            <span>Use compact tables by default</span>
+          </label>
+        </section>
+
+        <section class="settings-section" data-tool-settings="jira">
+          <div class="settings-section__header">
+            <h3>Jira</h3>
+            <label class="settings-switch">
+              <input type="checkbox" name="jira_override" data-tool-override="jira">
+              <span>Override defaults</span>
+            </label>
+          </div>
+          <label class="settings-field">
+            <span>Landing page</span>
+            <select name="jira_landing" data-tool-setting="landingPage">
+              <option value="dashboard">Dashboard</option>
+              <option value="issues">Issues</option>
+              <option value="query">Query</option>
+              <option value="sync">Sync</option>
+            </select>
+          </label>
+          <label class="settings-field">
+            <span>Default page size</span>
+            <select name="jira_page_size" data-tool-setting="pageSize">
+              <option value="20">20 rows</option>
+              <option value="50">50 rows</option>
+              <option value="100">100 rows</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="settings-section" data-tool-settings="sync2pod">
+          <div class="settings-section__header">
+            <h3>sync2pod</h3>
+            <label class="settings-switch">
+              <input type="checkbox" name="sync2pod_override" data-tool-override="sync2pod">
+              <span>Override defaults</span>
+            </label>
+          </div>
+          <label class="settings-field">
+            <span>Run mode</span>
+            <select name="sync2pod_run_mode" data-tool-setting="runMode">
+              <option value="manual">Manual</option>
+              <option value="watch">Watch</option>
+              <option value="scheduled">Scheduled</option>
+            </select>
+          </label>
+          <label class="settings-field settings-field--inline">
+            <input type="checkbox" name="sync2pod_logs" data-tool-setting="showLogs">
+            <span>Show logs by default</span>
+          </label>
+        </section>
+
+        <section class="settings-section" data-tool-settings="integrations">
+          <div class="settings-section__header">
+            <h3>Integrations</h3>
+            <label class="settings-switch">
+              <input type="checkbox" name="integrations_override" data-tool-override="integrations">
+              <span>Override defaults</span>
+            </label>
+          </div>
+          <label class="settings-field">
+            <span>Health scan</span>
+            <select name="integrations_health_scan" data-tool-setting="healthScan">
+              <option value="manual">Manual</option>
+              <option value="startup">On startup</option>
+              <option value="continuous">Continuous</option>
+            </select>
+          </label>
+          <label class="settings-field settings-field--inline">
+            <input type="checkbox" name="integrations_contracts" data-tool-setting="showContracts">
+            <span>Show contracts by default</span>
+          </label>
+        </section>
+
+        <footer class="settings-drawer__footer">
+          <button class="settings-drawer__reset" type="button" data-settings-reset>Reset</button>
+          <button class="workspace-button" type="submit">Save Settings</button>
+        </footer>
+      </form>
+
+      <section class="settings-section settings-section--connection">
+        <div class="settings-section__header">
+          <div>
+            <h3>Jira Connection</h3>
+            <span>Server URL, token, and reachability checks.</span>
+          </div>
+          {% if jira_connection %}
+            <span class="status-pill status-pill--{{ jira_connection.last_check_status }}">{{ jira_connection.last_check_status }}</span>
+          {% else %}
+            <span class="status-pill status-pill--failed">not configured</span>
+          {% endif %}
+        </div>
+
+        {% if jira_connection %}
+          <dl class="settings-connection-meta">
+            <div>
+              <dt>Server</dt>
+              <dd>{{ jira_connection.base_url }}</dd>
+            </div>
+            <div>
+              <dt>Token</dt>
+              <dd>{{ jira_connection.masked_token|default:"-" }}</dd>
+            </div>
+            <div>
+              <dt>Last Check</dt>
+              <dd>{{ jira_connection.last_checked_at|date:"Y-m-d H:i"|default:"Never" }}</dd>
+            </div>
+            <div>
+              <dt>Message</dt>
+              <dd>{{ jira_connection.last_check_message|default:"Not tested yet." }}</dd>
+            </div>
+            <div>
+              <dt>Schedule</dt>
+              <dd>python manage.py check_jira_connection</dd>
+            </div>
+          </dl>
+        {% endif %}
+
+        <form method="post" action="{% url 'jira_workspace:sync' %}" class="settings-connection-form" autocomplete="off">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="save_connection">
+          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+          {% if connection_form.errors %}
+            <div class="form-errors" role="alert">{{ connection_form.errors }}</div>
+          {% endif %}
+          <label class="settings-field">
+            <span>Server URL</span>
+            <input type="url" name="base_url" value="{{ connection_form.base_url.value|default:'' }}" placeholder="https://jira.example.com" required>
+          </label>
+          <label class="settings-field">
+            <span>Auth Type</span>
+            <select name="auth_type" required>
+              {% for value, label in connection_form.fields.auth_type.choices %}
+                <option value="{{ value }}"{% if connection_form.auth_type.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="settings-field">
+            <span>User Email</span>
+            <input type="email" name="user_email" value="{{ connection_form.user_email.value|default:'' }}" placeholder="Required for basic auth">
+          </label>
+          <label class="settings-field">
+            <span>API Token</span>
+            <input type="password" name="api_token" value="" placeholder="{% if jira_connection %}Leave blank to keep saved token{% else %}Paste Jira API token{% endif %}" {% if not jira_connection %}required{% endif %}>
+          </label>
+          <div class="settings-connection-actions">
+            <button class="workspace-button" type="submit">Save connection</button>
+          </div>
+        </form>
+
+        {% if jira_connection %}
+          <form method="post" action="{% url 'jira_workspace:sync' %}" class="settings-connection-actions">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="test_connection">
+            <input type="hidden" name="connection_id" value="{{ jira_connection.id }}">
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button class="settings-drawer__reset" type="submit">Test connection</button>
+          </form>
+        {% endif %}
+      </section>
+    </div>
+  </section>
+</aside>

@@ -1,0 +1,12 @@
+<form method="post" action="{% url 'jira_workspace:toggle_star' %}" class="star-form">
+  {% csrf_token %}
+  <input type="hidden" name="kind" value="{{ star.kind }}">
+  <input type="hidden" name="label" value="{{ star.label }}">
+  <input type="hidden" name="route" value="{{ star.route }}">
+  <input type="hidden" name="group_key" value="{{ star.group_key }}">
+  <input type="hidden" name="object_id" value="{{ star.object_id }}">
+  <input type="hidden" name="next" value="{{ star.next }}">
+  <button class="star-button{% if star.is_starred %} is-starred{% endif %}" type="submit" title="{% if star.is_starred %}Remove from Starred{% else %}Add to Starred{% endif %}" aria-label="{% if star.is_starred %}Remove {{ star.label }} from Starred{% else %}Add {{ star.label }} to Starred{% endif %}">
+    {% if star.is_starred %}★{% else %}☆{% endif %}
+  </button>
+</form>

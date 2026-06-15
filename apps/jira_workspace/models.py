@@ -16,6 +16,8 @@ def default_query_card_columns():
         "reporter",
         "priority",
         "updated_at",
+        "sprint",
+        "created_at",
     ]
 
 
@@ -64,6 +66,63 @@ class JiraIssueMetric(models.Model):
     cycle_time_minutes = models.IntegerField(blank=True, null=True)
     worklog_minutes = models.IntegerField(blank=True, null=True)
     status_changed_at = models.DateTimeField(blank=True, null=True)
+
+
+class JiraConnectionQuerySet(models.QuerySet):
+    def active(self):
+        return self.filter(is_active=True)
+
+
+class JiraConnection(models.Model):
+    class AuthType(models.TextChoices):
+        BEARER = "bearer", "Bearer Token"
+        BASIC = "basic", "Basic Auth"
+
+    class CheckStatus(models.TextChoices):
+        UNKNOWN = "unknown", "Unknown"
+        OK = "ok", "OK"
+        FAILED = "failed", "Failed"
+
+    base_url = models.URLField(max_length=255)
+    api_token = models.TextField()
+    auth_type = models.CharField(
+        max_length=16,
+        choices=AuthType.choices,
+        default=AuthType.BEARER,
+    )
+    user_email = models.EmailField(blank=True)
+    is_active = models.BooleanField(default=True)
+    last_check_status = models.CharField(
+        max_length=16,
+        choices=CheckStatus.choices,
+        default=CheckStatus.UNKNOWN,
+    )
+    last_check_message = models.TextField(blank=True)
+    last_checked_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = JiraConnectionQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["is_active"],
+                condition=models.Q(is_active=True),
+                name="jira_workspace_single_active_connection",
+            )
+        ]
+
+    @property
+    def masked_token(self):
+        token = self.api_token or ""
+        if not token:
+            return ""
+        visible = token[-4:] if len(token) > 4 else token
+        return f"{'*' * max(len(token) - len(visible), 0)}{visible}"
+
+    def __str__(self):
+        return self.base_url
 
 
 class JiraSyncProfile(models.Model):
@@ -116,7 +175,16 @@ class JiraSyncRun(models.Model):
     inserted_count = models.IntegerField(default=0)
     updated_count = models.IntegerField(default=0)
     skipped_count = models.IntegerField(default=0)
+    progress_current_count = models.IntegerField(default=0)
+    progress_total_count = models.IntegerField(default=0)
+    progress_message = models.CharField(max_length=255, blank=True, default="")
     error_message = models.TextField(blank=True, null=True)
+
+    @property
+    def progress_percent(self):
+        if self.progress_total_count <= 0:
+            return 0
+        return min(100, int((self.progress_current_count / self.progress_total_count) * 100))
 
 
 class GlobalSyncPolicy(models.Model):
@@ -303,6 +371,42 @@ class JiraIssueScopeMembership(models.Model):
         return super().save(*args, **kwargs)
 
 
+class JiraScopeSyncReport(models.Model):
+    class RunType(models.TextChoices):
+        FULL = "full", "Full"
+        INCREMENTAL = "incremental", "Incremental"
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "Running"
+        SUCCESS = "success", "Success"
+        FAILED = "failed", "Failed"
+
+    policy_version = models.ForeignKey(
+        GlobalSyncPolicyVersion,
+        on_delete=models.CASCADE,
+        related_name="scope_sync_reports",
+    )
+    scope = models.ForeignKey(
+        SyncScope,
+        on_delete=models.CASCADE,
+        related_name="sync_reports",
+    )
+    run_type = models.CharField(max_length=32, choices=RunType.choices)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.RUNNING)
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField(blank=True, null=True)
+    effective_jql = models.TextField(blank=True, default="")
+    fetched_count = models.IntegerField(default=0)
+    inserted_count = models.IntegerField(default=0)
+    updated_count = models.IntegerField(default=0)
+    skipped_count = models.IntegerField(default=0)
+    unchanged_checked_count = models.IntegerField(default=0)
+    deactivated_membership_count = models.IntegerField(default=0)
+    duration_ms = models.PositiveIntegerField(default=0)
+    error_message = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
 class JiraSavedQuery(models.Model):
     class CardKind(models.TextChoices):
         JIRA_ISSUE_QUERY = "jira_issue_query", "Jira Issue Query"
@@ -346,6 +450,46 @@ class JiraSavedQuery(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class OperationLog(models.Model):
+    class Tool(models.TextChoices):
+        JIRA_QUERY = "jira_query", "Jira Query"
+        JIRA_SYNC = "jira_sync", "Jira Sync"
+        SYNC2POD = "sync2pod", "sync2pod"
+        INTEGRATIONS = "integrations", "Integrations"
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "Running"
+        SUCCESS = "success", "Success"
+        FAILED = "failed", "Failed"
+
+    tool = models.CharField(max_length=32, choices=Tool.choices, db_index=True)
+    action = models.CharField(max_length=48, db_index=True)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.RUNNING,
+        db_index=True,
+    )
+    title = models.CharField(max_length=160)
+    triggered_by = models.CharField(max_length=128, blank=True, default="")
+    target_type = models.CharField(max_length=48, blank=True, default="", db_index=True)
+    target_id = models.CharField(max_length=80, blank=True, default="", db_index=True)
+    request_payload_json = models.JSONField(default=dict, blank=True)
+    result_summary = models.TextField(blank=True)
+    error_message = models.TextField(blank=True)
+    log_text = models.TextField(blank=True)
+    started_at = models.DateTimeField(db_index=True)
+    finished_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-started_at", "-id"]
+
+    def __str__(self):
+        return self.title
 
 
 class Sync2PodProfile(models.Model):

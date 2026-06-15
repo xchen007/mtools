@@ -22,6 +22,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('jira/', include('jira_workspace.urls', namespace='jira_workspace')),
     path('workspace/', jira_workspace_views.workspace_home),
+    path('logs/', jira_workspace_views.logs),
     path('sync2pod/', jira_workspace_views.sync2pod),
     path('integrations/', jira_workspace_views.integrations),
 

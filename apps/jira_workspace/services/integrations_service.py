@@ -1,8 +1,10 @@
 from pathlib import Path
 
 from django.db.models import Q
+from django.utils import timezone
 
-from jira_workspace.models import IntegrationScanRun, IntegrationTool
+from jira_workspace.models import IntegrationScanRun, IntegrationTool, OperationLog
+from jira_workspace.services.operation_log_service import OperationLogService
 
 
 class IntegrationsService:
@@ -66,6 +68,59 @@ class IntegrationsService:
             "recent_runs": recent_runs,
             "query": normalized_query,
         }
+
+    def run_scan(self, *, tool, triggered_by=""):
+        log_service = OperationLogService()
+        log = log_service.start_log(
+            tool=OperationLog.Tool.INTEGRATIONS,
+            action="run_scan",
+            title=tool.name,
+            triggered_by=triggered_by,
+            target_type="integration_tool",
+            target_id=tool.id,
+            request_payload={"tool_id": tool.id, "tool_key": tool.key},
+        )
+        run = IntegrationScanRun.objects.create(
+            tool=tool,
+            status=IntegrationScanRun.Status.RUNNING,
+        )
+
+        try:
+            summary = self._build_contract_row(tool)
+            missing = summary["missing_fields"]
+            summary_text = (
+                f"Missing {', '.join(missing)} contracts"
+                if missing
+                else "All contracts available"
+            )
+            run.status = IntegrationScanRun.Status.SUCCESS
+            run.summary = summary_text
+            run.finished_at = timezone.now()
+            run.save(update_fields=["status", "summary", "finished_at"])
+            log_service.mark_success(
+                log,
+                result_summary=summary_text,
+                log_text=(
+                    f"tool={tool.name}\n"
+                    f"key={tool.key}\n"
+                    f"input_status={summary['input_status']}\n"
+                    f"output_status={summary['output_status']}\n"
+                    f"event_status={summary['event_status']}\n"
+                    f"notes={summary['notes']}"
+                ),
+            )
+            return run
+        except Exception as exc:
+            run.status = IntegrationScanRun.Status.FAILED
+            run.error_message = str(exc)
+            run.finished_at = timezone.now()
+            run.save(update_fields=["status", "error_message", "finished_at"])
+            log_service.mark_failure(
+                log,
+                error_message=str(exc),
+                log_text=f"tool={tool.name}\nerror={exc}",
+            )
+            raise
 
     def _build_contract_row(self, tool):
         contract = getattr(tool, "contract", None)

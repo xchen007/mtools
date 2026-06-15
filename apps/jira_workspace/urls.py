@@ -6,6 +6,8 @@ app_name = "jira_workspace"
 
 urlpatterns = [
     path("star/toggle/", views.toggle_star, name="toggle_star"),
+    path("logs/", views.logs, name="logs"),
+    path("logs/<int:log_id>/", views.log_detail, name="log_detail"),
     path("workspace/", views.workspace_home, name="workspace_home"),
     path("live-state/", views.live_state, name="live_state"),
     path("dashboard/", views.dashboard, name="dashboard"),

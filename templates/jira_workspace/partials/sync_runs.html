@@ -8,9 +8,11 @@
         <th scope="col">Started</th>
         <th scope="col">Finished</th>
         <th scope="col">Fetched</th>
+        <th scope="col">Progress</th>
         <th scope="col">Inserted</th>
         <th scope="col">Updated</th>
         <th scope="col">Skipped</th>
+        <th scope="col">Log</th>
       </tr>
     </thead>
     <tbody>
@@ -22,13 +24,32 @@
           <td>{{ run.started_at|date:"Y-m-d H:i"|default:"-" }}</td>
           <td>{{ run.finished_at|date:"Y-m-d H:i"|default:"-" }}</td>
           <td>{{ run.fetched_count|default:0 }}</td>
+          <td>
+            {% if run.status == "queued" or run.status == "running" %}
+              <div class="sync-progress">
+                <div
+                  class="sync-progress__bar"
+                  role="progressbar"
+                  aria-valuemin="0"
+                  aria-valuemax="{{ run.progress_total_count|default:100 }}"
+                  aria-valuenow="{{ run.progress_current_count|default:0 }}"
+                >
+                  <span class="sync-progress__fill" style="width: {{ run.progress_percent }}%;"></span>
+                </div>
+                <span class="sync-progress__message">{{ run.progress_message|default:"Queued" }}</span>
+              </div>
+            {% else %}
+              {{ run.progress_message|default:"-" }}
+            {% endif %}
+          </td>
           <td>{{ run.inserted_count|default:0 }}</td>
           <td>{{ run.updated_count|default:0 }}</td>
           <td>{{ run.skipped_count|default:0 }}</td>
+          <td class="sync-run-log">{{ run.error_message|default:"-" }}</td>
         </tr>
       {% empty %}
         <tr>
-          <td class="empty-state empty-state--cell" colspan="9">No sync runs recorded yet.</td>
+          <td class="empty-state empty-state--cell" colspan="11">No sync runs recorded yet.</td>
         </tr>
       {% endfor %}
     </tbody>

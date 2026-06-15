@@ -198,6 +198,12 @@
       </article>
     </div>
   </section>
+  <section class="panel tool-surface">
+    <div class="panel__header">
+      <h2 class="section-title">Recent Logs</h2>
+    </div>
+    {% include "jira_workspace/partials/operation_log_list.html" with operation_logs=recent_operation_logs %}
+  </section>
 
   <div class="dashboard-grid">
     <section class="panel tool-surface">

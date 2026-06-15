@@ -1,0 +1,35 @@
+{% extends "jira_workspace/base.html" %}
+
+{% block title %}{{ operation_log.title }} | Operation Log{% endblock %}
+
+{% block content %}
+<section class="page-section">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">{{ operation_log.title }}</h1>
+      <p class="page-subtitle">{{ operation_log.tool }} · {{ operation_log.action }} · {{ operation_log.status }}</p>
+    </div>
+  </div>
+
+  <section class="panel tool-surface">
+    <div class="panel__header">
+      <h2 class="section-title">Summary</h2>
+    </div>
+    <div class="recent-list">
+      <article class="recent-item">
+        <div class="recent-item__summary">{{ operation_log.result_summary|default:operation_log.error_message|default:"No summary recorded." }}</div>
+      </article>
+      <article class="recent-item">
+        <div class="recent-item__summary">{{ operation_log.request_payload_json }}</div>
+      </article>
+    </div>
+  </section>
+
+  <section class="panel tool-surface">
+    <div class="panel__header">
+      <h2 class="section-title">Log Body</h2>
+    </div>
+    <pre class="operation-log-body">{{ operation_log.log_text }}</pre>
+  </section>
+</section>
+{% endblock %}

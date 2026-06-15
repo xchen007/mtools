@@ -3,7 +3,7 @@ from unittest.mock import Mock
 
 from django.test import TestCase
 
-from jira_workspace.models import Sync2PodProfile, Sync2PodRun, Sync2PodWatchEvent
+from jira_workspace.models import OperationLog, Sync2PodProfile, Sync2PodRun, Sync2PodWatchEvent
 from jira_workspace.services.sync2pod_service import Sync2PodService
 
 
@@ -85,6 +85,39 @@ class Sync2PodServiceTests(TestCase):
         assert run.status == Sync2PodRun.Status.FAILED
         assert run.exit_code == 7
         assert "permission denied" in run.error_message
+
+        log = OperationLog.objects.get(
+            tool=OperationLog.Tool.SYNC2POD,
+            action="start_sync",
+        )
+        assert log.status == OperationLog.Status.FAILED
+        assert "permission denied" in log.error_message
+
+    def test_create_run_records_success_operation_log_with_output(self):
+        profile = Sync2PodProfile.objects.create(
+            name="Primary Pod",
+            pod_name="pod-a",
+            namespace="sync",
+            watch_path="/tmp/watch",
+            config_path="/tmp/sync2pod.yaml",
+            command="sync2pod",
+            extra_args="--delete",
+        )
+        self.runner.run.return_value = SimpleNamespace(
+            returncode=0,
+            stdout="synced 4 files",
+            stderr="warning: skipped hidden file",
+        )
+
+        self.service.create_run(profile=profile, trigger=Sync2PodRun.Trigger.MANUAL)
+
+        log = OperationLog.objects.get(
+            tool=OperationLog.Tool.SYNC2POD,
+            action="start_sync",
+        )
+        assert log.status == OperationLog.Status.SUCCESS
+        assert "synced 4 files" in log.log_text
+        assert "warning: skipped hidden file" in log.log_text
 
     def test_build_status_summary_counts_queue_and_latest_failure(self):
         profile = Sync2PodProfile.objects.create(

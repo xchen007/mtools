@@ -39,6 +39,40 @@
     </section>
   {% endif %}
 
+  {% if sync_policy %}
+    <section class="panel">
+      <div class="panel__header">
+        <h2 class="section-title">Cache Alignment</h2>
+        <span class="status-pill status-pill--{% if sync_policy.status == 'ready' %}success{% elif sync_required_failures %}failed{% else %}neutral{% endif %}">
+          {{ sync_policy.get_status_display }}
+        </span>
+      </div>
+      <dl class="meta-grid">
+        <div>
+          <dt>Current Policy Version</dt>
+          <dd>v{{ sync_policy_version.version_no }}</dd>
+        </div>
+        <div>
+          <dt>Last Successful Check</dt>
+          <dd>{{ sync_latest_successful_check|date:"Y-m-d H:i"|default:"-" }}</dd>
+        </div>
+      </dl>
+      {% if sync_required_failures %}
+        <div class="recent-list">
+          {% for scope in sync_required_failures %}
+            <article class="recent-item">
+              <div class="recent-item__top">
+                <span class="issue-key">{{ scope.name }}</span>
+                <span class="issue-status">{{ scope.get_last_run_status_display }}</span>
+              </div>
+              <div class="recent-item__summary">{{ scope.last_error_message|default:"Required scope failure" }}</div>
+            </article>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
+
   <section class="dashboard-summary-strip" aria-label="Dashboard summary">
     {% for metric in dashboard_metrics %}
       <article class="dashboard-summary-item">

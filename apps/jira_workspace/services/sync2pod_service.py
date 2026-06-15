@@ -5,7 +5,8 @@ import subprocess
 from django.utils import timezone
 
 from jira_workspace.forms import Sync2PodProfileForm
-from jira_workspace.models import Sync2PodProfile, Sync2PodRun, Sync2PodWatchEvent
+from jira_workspace.models import OperationLog, Sync2PodProfile, Sync2PodRun, Sync2PodWatchEvent
+from jira_workspace.services.operation_log_service import OperationLogService
 
 
 class CommandRunner:
@@ -49,6 +50,21 @@ class Sync2PodService:
 
     def create_run(self, *, profile, trigger, watch_event=None):
         command = self._build_command(profile)
+        log_service = OperationLogService()
+        log = log_service.start_log(
+            tool=OperationLog.Tool.SYNC2POD,
+            action="start_sync",
+            title=profile.name,
+            triggered_by="watcher" if trigger == Sync2PodRun.Trigger.WATCH else "",
+            target_type="sync2pod_profile",
+            target_id=profile.id,
+            request_payload={
+                "profile_id": profile.id,
+                "profile_name": profile.name,
+                "trigger": trigger,
+                "command": command,
+            },
+        )
         run = Sync2PodRun.objects.create(
             profile=profile,
             status=Sync2PodRun.Status.RUNNING,
@@ -70,6 +86,15 @@ class Sync2PodService:
             run.finished_at = timezone.now()
             run.save(
                 update_fields=["status", "exit_code", "error_message", "finished_at"]
+            )
+            log_service.mark_failure(
+                log,
+                error_message=run.error_message,
+                log_text=(
+                    f"command_line={run.command_line}\n"
+                    f"exit_code={run.exit_code}\n"
+                    f"error={run.error_message}"
+                ),
             )
             self._finalize_watch_event(watch_event=watch_event, run=run, success=False)
             return run
@@ -93,6 +118,24 @@ class Sync2PodService:
                 "error_message",
             ]
         )
+        log_text = (
+            f"command_line={run.command_line}\n"
+            f"exit_code={run.exit_code}\n"
+            f"stdout={run.stdout_log}\n"
+            f"stderr={run.stderr_log}"
+        )
+        if run.status == Sync2PodRun.Status.SUCCESS:
+            log_service.mark_success(
+                log,
+                result_summary=f"Exit code {run.exit_code}",
+                log_text=log_text,
+            )
+        else:
+            log_service.mark_failure(
+                log,
+                error_message=run.error_message,
+                log_text=log_text,
+            )
         self._finalize_watch_event(
             watch_event=watch_event,
             run=run,

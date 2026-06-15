@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
 
 import requests
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
+from jira_workspace.models import JiraConnection
 from jira_workspace.services.jira_adapter import JiraAdapter
 
 
@@ -170,6 +171,54 @@ class JiraAdapterTests(SimpleTestCase):
             },
         ]
 
+    def test_fetch_issues_reports_page_progress(self):
+        session = RecordingSession(
+            [
+                StubResponse(
+                    {
+                        "issues": [
+                            {
+                                "key": "TESS-1",
+                                "fields": {
+                                    "project": {"key": "TESS"},
+                                    "summary": "First",
+                                },
+                            }
+                        ],
+                        "total": 2,
+                    }
+                ),
+                StubResponse(
+                    {
+                        "issues": [
+                            {
+                                "key": "TESS-2",
+                                "fields": {
+                                    "project": {"key": "TESS"},
+                                    "summary": "Second",
+                                },
+                            }
+                        ],
+                        "total": 2,
+                    }
+                ),
+            ]
+        )
+        adapter = JiraAdapter(
+            base_url="https://jira.example.com",
+            api_token="token-123",
+            session=session,
+        )
+        progress_updates = []
+
+        adapter.fetch_issues(
+            'project = "TESS"',
+            page_size=1,
+            progress_callback=lambda fetched, total: progress_updates.append((fetched, total)),
+        )
+
+        assert progress_updates == [(1, 2), (2, 2)]
+
     def test_fetch_issues_normalizes_representative_jira_payload_shapes(self):
         created_at = "2026-06-01T09:00:00Z"
         updated_at = "2026-06-12T16:45:00+0800"
@@ -261,6 +310,79 @@ class JiraAdapterTests(SimpleTestCase):
             },
         ]
 
+    def test_fetch_issues_ignores_non_sprint_customfields_when_extracting_sprint(self):
+        session = RecordingSession(
+            [
+                StubResponse(
+                    {
+                        "issues": [
+                            {
+                                "key": "SDSTOR-22591",
+                                "fields": {
+                                    "project": {"key": "SDSTOR"},
+                                    "summary": "Resolve stubborn heal issues",
+                                    "customfield_10010": {
+                                        "name": "xchen17",
+                                        "displayName": "Chen, Xuan",
+                                    },
+                                    "customfield_10020": [
+                                        "com.atlassian.greenhopper.service.sprint.Sprint@1[id=11,rapidViewId=2,state=CLOSED,name=SDS-CP-Sprint11-2026,startDate=2026-06-01T08:00:00.000Z,endDate=2026-06-09T08:00:00.000Z,completeDate=2026-06-09T08:00:00.000Z,sequence=11]"
+                                    ],
+                                },
+                            }
+                        ],
+                        "total": 1,
+                    }
+                )
+            ]
+        )
+        adapter = JiraAdapter(
+            base_url="https://jira.example.com",
+            api_token="token-123",
+            session=session,
+        )
+
+        issues = adapter.fetch_issues('key = "SDSTOR-22591"')
+
+        assert issues[0]["sprint"] == "SDS-CP-Sprint11-2026"
+
+    def test_fetch_issues_does_not_treat_dev_summary_as_sprint(self):
+        session = RecordingSession(
+            [
+                StubResponse(
+                    {
+                        "issues": [
+                            {
+                                "key": "SSI-10595",
+                                "fields": {
+                                    "project": {"key": "SSI"},
+                                    "summary": "Migrate CMS Auth from Keystone to TrustFabric",
+                                    "customfield_31300": (
+                                        "{summaryBean=com.atlassian.jira.plugin.devstatus.rest."
+                                        "SummaryBean@1[summary={pullrequest="
+                                        "PullRequestOverallBean{stateCount=1, state='OPEN'},"
+                                        "repository={byInstanceType={githube="
+                                        "ObjectByInstanceTypeBean@1[count=3,"
+                                        "name=GitHub Enterprise]}}}]}"
+                                    ),
+                                },
+                            }
+                        ],
+                        "total": 1,
+                    }
+                )
+            ]
+        )
+        adapter = JiraAdapter(
+            base_url="https://jira.example.com",
+            api_token="token-123",
+            session=session,
+        )
+
+        issues = adapter.fetch_issues('key = "SSI-10595"')
+
+        assert issues[0]["sprint"] is None
+
     def test_fetch_current_user_propagates_request_failures(self):
         error = requests.HTTPError("401 Client Error: Unauthorized")
         session = RecordingSession([StubResponse(error=error)])
@@ -274,3 +396,28 @@ class JiraAdapterTests(SimpleTestCase):
             adapter.fetch_current_user()
 
         assert raised.exception is error
+
+
+class JiraAdapterDatabaseConfigTests(TestCase):
+    @override_settings(
+        JIRA_API_BASE_URL="",
+        JIRA_API_TOKEN="",
+        JIRA_AUTH_TYPE="bearer",
+        JIRA_USER_EMAIL="",
+    )
+    def test_adapter_uses_active_database_connection_when_explicit_values_are_absent(self):
+        JiraConnection.objects.create(
+            base_url="https://jira-db.example.com",
+            api_token="db-token",
+            auth_type=JiraConnection.AuthType.BEARER,
+            is_active=True,
+        )
+        session = RecordingSession([StubResponse({"name": "xchen17"})])
+
+        adapter = JiraAdapter(session=session, timeout=7)
+        username = adapter.fetch_current_user()
+
+        assert username == "xchen17"
+        assert session.calls[0]["url"] == "https://jira-db.example.com/rest/api/2/myself"
+        assert session.calls[0]["headers"]["Authorization"] == "Bearer db-token"
+        assert session.calls[0]["timeout"] == 7

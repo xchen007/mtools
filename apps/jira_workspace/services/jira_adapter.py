@@ -9,6 +9,18 @@ from django.utils import timezone
 
 
 class JiraAdapter:
+    _SPRINT_METADATA_KEYS = {
+        "activatedDate",
+        "boardId",
+        "completeDate",
+        "endDate",
+        "goal",
+        "originBoardId",
+        "rapidViewId",
+        "sequence",
+        "startDate",
+    }
+
     def __init__(
         self,
         *,
@@ -19,12 +31,17 @@ class JiraAdapter:
         session=None,
         timeout=30,
     ):
+        if all(value is None for value in (base_url, api_token, auth_type, user_email)):
+            connection_values = self._active_connection_values()
+            base_url = connection_values.get("base_url")
+            api_token = connection_values.get("api_token")
+            auth_type = connection_values.get("auth_type")
+            user_email = connection_values.get("user_email")
+
         self.base_url = (base_url or settings.JIRA_API_BASE_URL or "").rstrip("/") + "/"
         self.api_token = api_token if api_token is not None else settings.JIRA_API_TOKEN
         self.auth_type = (auth_type or settings.JIRA_AUTH_TYPE or "bearer").lower()
-        self.user_email = (
-            user_email if user_email is not None else settings.JIRA_USER_EMAIL or None
-        )
+        self.user_email = user_email if user_email is not None else settings.JIRA_USER_EMAIL or None
         self.session = session or requests.Session()
         self.timeout = timeout
 
@@ -35,11 +52,35 @@ class JiraAdapter:
         if self.auth_type not in {"basic", "bearer"}:
             raise ValueError(f"Unsupported JIRA_AUTH_TYPE '{self.auth_type}'.")
 
+    @classmethod
+    def from_connection(cls, connection, **kwargs):
+        return cls(
+            base_url=connection.base_url,
+            api_token=connection.api_token,
+            auth_type=connection.auth_type,
+            user_email=connection.user_email,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _active_connection_values():
+        from jira_workspace.models import JiraConnection
+
+        connection = JiraConnection.objects.active().order_by("-updated_at").first()
+        if connection is None:
+            return {}
+        return {
+            "base_url": connection.base_url,
+            "api_token": connection.api_token,
+            "auth_type": connection.auth_type,
+            "user_email": connection.user_email,
+        }
+
     def fetch_current_user(self):
         payload = self._request("GET", "/rest/api/2/myself")
         return self._identity_value(payload) or ""
 
-    def fetch_issues(self, jql, page_size=50):
+    def fetch_issues(self, jql, page_size=50, progress_callback=None):
         start_at = 0
         items = []
 
@@ -58,6 +99,8 @@ class JiraAdapter:
                 items.append(self._normalize_issue(issue))
 
             total = payload.get("total", 0)
+            if progress_callback is not None:
+                progress_callback(len(items), total)
             if not issues or start_at + len(issues) >= total:
                 break
             start_at += len(issues)
@@ -160,10 +203,35 @@ class JiraAdapter:
         for key, value in fields.items():
             if not key.startswith("customfield_") or not value:
                 continue
+            if not cls._looks_like_sprint_value(value):
+                continue
             sprint_value = cls._coerce_sprint_value(value)
             if sprint_value:
                 return sprint_value
         return None
+
+    @classmethod
+    def _looks_like_sprint_value(cls, value):
+        if isinstance(value, dict):
+            return bool(cls._SPRINT_METADATA_KEYS.intersection(value.keys()))
+        if isinstance(value, list):
+            return any(cls._looks_like_sprint_value(item) for item in value)
+        if isinstance(value, str):
+            if "greenhopper.service.sprint.Sprint@" in value:
+                return True
+            return "name=" in value and any(
+                marker in value
+                for marker in (
+                    "rapidViewId=",
+                    "sequence=",
+                    "startDate=",
+                    "endDate=",
+                    "completeDate=",
+                    "activatedDate=",
+                    "originBoardId=",
+                )
+            )
+        return False
 
     @classmethod
     def _coerce_sprint_value(cls, value):

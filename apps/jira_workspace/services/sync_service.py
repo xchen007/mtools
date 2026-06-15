@@ -5,7 +5,6 @@ import threading
 from dataclasses import dataclass
 from datetime import timedelta
 
-from django.conf import settings
 from django.db import close_old_connections, transaction
 from django.utils import timezone
 
@@ -15,11 +14,14 @@ from jira_workspace.models import (
     JiraIssue,
     JiraIssueScopeMembership,
     JiraIssueSyncMembership,
+    JiraScopeSyncReport,
+    OperationLog,
     JiraSyncProfile,
     JiraSyncRun,
     SyncScope,
 )
 from jira_workspace.services.jira_adapter import JiraAdapter
+from jira_workspace.services.operation_log_service import OperationLogService
 
 
 @dataclass
@@ -44,7 +46,7 @@ class SyncService:
 
     @transaction.atomic
     def apply_policy_strategy(self, *, policy, strategy_json):
-        normalized_strategy = self._normalize_strategy(strategy_json)
+        normalized_strategy = self._normalize_strategy(strategy_json, is_root=True)
         strategy_hash = self._strategy_hash(normalized_strategy)
         if policy.strategy_hash == strategy_hash and policy.current_version_id:
             return policy.current_version
@@ -82,6 +84,28 @@ class SyncService:
         )
         return version
 
+    @transaction.atomic
+    def rebuild_policy_version(self, *, policy):
+        last_version_no = (
+            GlobalSyncPolicyVersion.objects.filter(policy=policy)
+            .order_by("-version_no")
+            .values_list("version_no", flat=True)
+            .first()
+            or 0
+        )
+        version = GlobalSyncPolicyVersion.objects.create(
+            policy=policy,
+            version_no=last_version_no + 1,
+            strategy_hash=policy.strategy_hash,
+            status=GlobalSyncPolicyVersion.Status.PENDING_FULL_SYNC,
+            full_sync_required=True,
+        )
+        self._create_scopes_for_version(version=version, strategy_json=policy.strategy_json)
+        policy.current_version = version
+        policy.status = GlobalSyncPolicy.Status.STALE
+        policy.save(update_fields=["current_version", "status", "updated_at"])
+        return version
+
     def run_scope_full(self, scope):
         return self._run_scope(scope=scope, run_type=JiraSyncRun.RunType.FULL)
 
@@ -89,6 +113,50 @@ class SyncService:
         if scope.last_full_sync_at is None:
             raise ValueError("Incremental scope sync requires a prior full sync.")
         return self._run_scope(scope=scope, run_type=JiraSyncRun.RunType.INCREMENTAL)
+
+    def run_due_scopes(self, *, now=None):
+        now = now or timezone.now()
+        scopes = list(
+            SyncScope.objects.select_related("policy_version")
+            .filter(is_enabled=True, next_run_at__lte=now)
+            .filter(
+                last_run_status__in=[
+                    SyncScope.RunStatus.QUEUED_FULL,
+                    SyncScope.RunStatus.QUEUED_INCREMENTAL,
+                    SyncScope.RunStatus.SUCCESS,
+                    SyncScope.RunStatus.FAILED,
+                    SyncScope.RunStatus.IDLE,
+                ]
+            )
+            .order_by("next_run_at", "-is_required", "name")
+        )
+        reports = []
+        for scope in scopes:
+            before_report_id = (
+                JiraScopeSyncReport.objects.filter(scope=scope)
+                .order_by("-started_at", "-id")
+                .values_list("id", flat=True)
+                .first()
+            )
+            run_type = (
+                JiraSyncRun.RunType.FULL
+                if scope.last_run_status == SyncScope.RunStatus.QUEUED_FULL
+                or scope.last_full_sync_at is None
+                else JiraSyncRun.RunType.INCREMENTAL
+            )
+            try:
+                self._run_scope(scope=scope, run_type=run_type, synced_at=now)
+            except Exception:
+                pass
+            report = (
+                JiraScopeSyncReport.objects.filter(scope=scope)
+                .exclude(id=before_report_id)
+                .order_by("-started_at", "-id")
+                .first()
+            )
+            if report:
+                reports.append(report)
+        return reports
 
     def full_sync(self, profile):
         return self._sync(profile=profile, run_type=JiraSyncRun.RunType.FULL)
@@ -111,6 +179,7 @@ class SyncService:
             run_type=run_type,
             status=JiraSyncRun.Status.QUEUED,
             started_at=timezone.now(),
+            progress_message="Queued",
         )
         if start_background:
             thread = threading.Thread(
@@ -145,6 +214,10 @@ class SyncService:
                 updated_since=updated_since,
                 run=run,
             )
+        except JiraSyncRun.DoesNotExist:
+            return
+        except Exception:
+            return
         finally:
             close_old_connections()
 
@@ -195,27 +268,61 @@ class SyncService:
 
     def _sync(self, *, profile, run_type, updated_since=None, run=None):
         started_at = timezone.now()
+        log_service = OperationLogService()
+        log = log_service.start_log(
+            tool=OperationLog.Tool.JIRA_SYNC,
+            action=run_type,
+            title=f"{profile.name} {run_type}",
+            triggered_by=(profile.params_json or {}).get("username", ""),
+            target_type="jira_sync_profile",
+            target_id=profile.id,
+            request_payload={
+                "profile_id": profile.id,
+                "profile_name": profile.name,
+                "run_type": run_type,
+                "updated_since": updated_since or "",
+            },
+        )
         if run is None:
             run = JiraSyncRun.objects.create(
                 profile=profile,
                 run_type=run_type,
                 status=JiraSyncRun.Status.RUNNING,
                 started_at=started_at,
+                progress_message="Starting",
             )
         else:
             run.status = JiraSyncRun.Status.RUNNING
-            run.save(update_fields=["status"])
+            run.progress_message = "Starting"
+            run.save(update_fields=["status", "progress_message"])
 
         try:
             self._refresh_profile_identity(profile)
             base_jql = self.build_jql(profile)
             effective_jql = self._append_updated_clause(base_jql, updated_since)
-            items = self._jira_client().fetch_issues(effective_jql)
+            items = self._jira_client().fetch_issues(
+                effective_jql,
+                progress_callback=lambda fetched, total: self._update_run_progress(
+                    run,
+                    fetched,
+                    total,
+                ),
+            )
             result = self._store_items(
                 profile=profile,
                 items=items,
                 run_type=run_type,
                 synced_at=started_at,
+            )
+            run.progress_current_count = result.fetched_count
+            run.progress_total_count = result.fetched_count
+            run.progress_message = f"Stored {result.fetched_count} fetched issues."
+            run.save(
+                update_fields=[
+                    "progress_current_count",
+                    "progress_total_count",
+                    "progress_message",
+                ]
             )
 
             profile.jql = base_jql
@@ -248,15 +355,60 @@ class SyncService:
                     "inserted_count",
                     "updated_count",
                     "skipped_count",
+                    "progress_current_count",
+                    "progress_total_count",
+                    "progress_message",
                 ]
+            )
+            log_service.mark_success(
+                log,
+                result_summary=f"Fetched {result.fetched_count} issues",
+                log_text=(
+                    f"profile={profile.name}\n"
+                    f"run_type={run_type}\n"
+                    f"base_jql={base_jql}\n"
+                    f"effective_jql={effective_jql}\n"
+                    f"fetched={result.fetched_count}\n"
+                    f"inserted={result.inserted_count}\n"
+                    f"updated={result.updated_count}\n"
+                    f"skipped={result.skipped_count}"
+                ),
             )
             return result
         except Exception as exc:
             run.status = JiraSyncRun.Status.FAILED
             run.finished_at = timezone.now()
             run.error_message = str(exc)
-            run.save(update_fields=["status", "finished_at", "error_message"])
+            run.progress_message = f"Failed: {exc}"
+            run.save(update_fields=["status", "finished_at", "error_message", "progress_message"])
+            log_service.mark_failure(
+                log,
+                error_message=str(exc),
+                log_text=(
+                    f"profile={profile.name}\n"
+                    f"run_type={run_type}\n"
+                    f"updated_since={updated_since or ''}\n"
+                    f"error={exc}"
+                ),
+            )
             raise
+
+    @staticmethod
+    def _update_run_progress(run, fetched, total):
+        total = total or 0
+        run.progress_current_count = fetched
+        run.progress_total_count = total
+        if total:
+            run.progress_message = f"Fetched {fetched} of {total} issues."
+        else:
+            run.progress_message = f"Fetched {fetched} issues."
+        run.save(
+            update_fields=[
+                "progress_current_count",
+                "progress_total_count",
+                "progress_message",
+            ]
+        )
 
     @transaction.atomic
     def _store_items(self, *, profile, items, run_type, synced_at):
@@ -270,38 +422,17 @@ class SyncService:
             if issue is None:
                 issue = JiraIssue.objects.create(
                     issue_key=item["issue_key"],
-                    project_key=item["project_key"],
-                    summary=item["summary"],
-                    status=item["status"],
-                    assignee=item.get("assignee"),
-                    reporter=item.get("reporter"),
-                    priority=item.get("priority"),
-                    sprint=item.get("sprint"),
-                    issue_type=item.get("issue_type") or "",
-                    labels_json=item.get("labels_json") or [],
-                    updated_at=updated_at,
-                    created_at=item.get("created_at"),
-                    raw_json=item.get("raw_json", "{}"),
                     last_seen_at=synced_at,
+                    **self._issue_defaults(item),
                 )
                 result.inserted_count += 1
-            elif issue.updated_at == updated_at:
+            elif issue.updated_at == updated_at and self._issue_matches_item(issue, item):
                 issue.last_seen_at = synced_at
                 issue.save(update_fields=["last_seen_at"])
                 result.skipped_count += 1
             else:
-                issue.project_key = item["project_key"]
-                issue.summary = item["summary"]
-                issue.status = item["status"]
-                issue.assignee = item.get("assignee")
-                issue.reporter = item.get("reporter")
-                issue.priority = item.get("priority")
-                issue.sprint = item.get("sprint")
-                issue.issue_type = item.get("issue_type") or ""
-                issue.labels_json = item.get("labels_json") or []
-                issue.updated_at = updated_at
-                issue.created_at = item.get("created_at")
-                issue.raw_json = item.get("raw_json", "{}")
+                for field, value in self._issue_defaults(item).items():
+                    setattr(issue, field, value)
                 issue.last_seen_at = synced_at
                 issue.save()
                 result.updated_count += 1
@@ -325,11 +456,17 @@ class SyncService:
 
         return result
 
-
-    @transaction.atomic
-    def _run_scope(self, *, scope, run_type):
-        synced_at = timezone.now()
+    def _run_scope(self, *, scope, run_type, synced_at=None):
+        synced_at = synced_at or timezone.now()
         effective_jql = self._build_scope_jql(scope=scope, run_type=run_type)
+        report = JiraScopeSyncReport.objects.create(
+            policy_version=scope.policy_version,
+            scope=scope,
+            run_type=run_type,
+            status=JiraScopeSyncReport.Status.RUNNING,
+            started_at=synced_at,
+            effective_jql=effective_jql,
+        )
         scope.last_run_status = (
             SyncScope.RunStatus.RUNNING_FULL
             if run_type == JiraSyncRun.RunType.FULL
@@ -360,6 +497,7 @@ class SyncService:
                 scope.last_full_sync_at = synced_at
             else:
                 scope.last_incremental_sync_at = synced_at
+            scope.next_run_at = synced_at + timedelta(minutes=scope.schedule_minutes)
             scope.save(
                 update_fields=[
                     "last_run_status",
@@ -368,21 +506,69 @@ class SyncService:
                     "last_incremental_sync_at",
                     "last_issue_updated_cursor",
                     "last_error_message",
+                    "next_run_at",
                     "updated_at",
+                ]
+            )
+            finished_at = timezone.now()
+            report.status = JiraScopeSyncReport.Status.SUCCESS
+            report.finished_at = finished_at
+            report.fetched_count = result.fetched_count
+            report.inserted_count = result.inserted_count
+            report.updated_count = result.updated_count
+            report.skipped_count = result.skipped_count
+            report.unchanged_checked_count = result.unchanged_checked_count
+            report.deactivated_membership_count = result.deactivated_membership_count
+            report.duration_ms = max(
+                0,
+                int((finished_at - synced_at).total_seconds() * 1000),
+            )
+            report.save(
+                update_fields=[
+                    "status",
+                    "finished_at",
+                    "fetched_count",
+                    "inserted_count",
+                    "updated_count",
+                    "skipped_count",
+                    "unchanged_checked_count",
+                    "deactivated_membership_count",
+                    "duration_ms",
                 ]
             )
             return result
         except Exception as exc:
             scope.last_run_status = SyncScope.RunStatus.FAILED
             scope.last_error_message = str(exc)
-            scope.save(update_fields=["last_run_status", "last_error_message", "updated_at"])
+            scope.next_run_at = synced_at + timedelta(minutes=scope.schedule_minutes)
+            scope.save(update_fields=["last_run_status", "last_error_message", "next_run_at", "updated_at"])
+            finished_at = timezone.now()
+            report.status = JiraScopeSyncReport.Status.FAILED
+            report.finished_at = finished_at
+            report.error_message = str(exc)
+            report.duration_ms = max(
+                0,
+                int((finished_at - synced_at).total_seconds() * 1000),
+            )
+            report.save(
+                update_fields=[
+                    "status",
+                    "finished_at",
+                    "error_message",
+                    "duration_ms",
+                ]
+            )
             raise
 
     @transaction.atomic
     def _store_scope_items(self, *, scope, items, run_type, synced_at):
         result = SyncResult(fetched_count=len(items))
         seen_issue_keys = set()
-        max_updated = self._parse_datetime(scope.last_issue_updated_cursor)
+        max_updated = (
+            self._parse_datetime(scope.last_issue_updated_cursor)
+            if run_type == JiraSyncRun.RunType.INCREMENTAL
+            else None
+        )
 
         for item in items:
             issue, was_inserted, was_updated, was_unchanged = self._upsert_scope_issue(
@@ -418,6 +604,8 @@ class SyncService:
 
         if max_updated is not None:
             scope.last_issue_updated_cursor = max_updated.isoformat()
+        elif run_type == JiraSyncRun.RunType.FULL:
+            scope.last_issue_updated_cursor = None
 
         return result
 
@@ -646,16 +834,23 @@ class SyncService:
     @classmethod
     def _strategy_hash(cls, strategy_json):
         normalized_json = json.dumps(
-            cls._normalize_strategy(strategy_json),
+            cls._normalize_strategy(strategy_json, is_root=True),
             sort_keys=True,
             separators=(",", ":"),
         )
         return hashlib.sha256(normalized_json.encode("utf-8")).hexdigest()
 
     @classmethod
-    def _normalize_strategy(cls, value):
+    def _normalize_strategy(cls, value, *, is_root=False):
         if isinstance(value, dict):
-            return {key: cls._normalize_strategy(value[key]) for key in sorted(value)}
+            normalized = {
+                key: cls._normalize_strategy(value[key])
+                for key in sorted(value)
+            }
+            if is_root:
+                normalized["scopes"] = normalized.get("scopes") or []
+                normalized["required_self"] = True
+            return normalized
         if isinstance(value, list):
             return [cls._normalize_strategy(item) for item in value]
         return value
@@ -730,10 +925,5 @@ class SyncService:
 
     def _jira_client(self):
         if self.jira is None:
-            if getattr(settings, "JIRA_SIMULATION_MODE", False):
-                from jira_workspace.services.fake_jira_adapter import FakeJiraAdapter
-
-                self.jira = FakeJiraAdapter()
-            else:
-                self.jira = JiraAdapter()
+            self.jira = JiraAdapter()
         return self.jira

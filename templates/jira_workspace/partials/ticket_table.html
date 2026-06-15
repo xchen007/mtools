@@ -8,6 +8,8 @@
   data-rich-table-row-click="{{ rich_table_row_click|default:'drawer' }}"
   data-rich-table-page-size="{{ rich_table_page_size|default:20 }}"
   data-rich-table-fill-height="{{ rich_table_fill_height|yesno:'true,false' }}"
+  data-rich-table-default-columns="{{ rich_table_default_columns|default:'' }}"
+  data-rich-table-ticket-browse-base-url="{{ jira_browse_base_url|default:'' }}"
 >
   <table class="ticket-table ticket-table--dense ticket-table--no-wrap">
     <thead>
@@ -40,7 +42,13 @@
           data-ticket-created="{{ issue.created_at|date:'Y-m-d H:i'|default:'-' }}"
           data-ticket-updated="{{ issue.updated_at|date:'Y-m-d H:i'|default:'-' }}"
         >
-          <td class="cell-key">{{ issue.issue_key }}</td>
+          <td class="cell-key">
+            {% if jira_browse_base_url %}
+              <a class="ticket-key-link" href="{{ jira_browse_base_url }}/browse/{{ issue.issue_key|urlencode }}" target="_blank" rel="noreferrer">{{ issue.issue_key }}</a>
+            {% else %}
+              {{ issue.issue_key }}
+            {% endif %}
+          </td>
           <td>{{ issue.project_key|default:"-" }}</td>
           <td>{{ issue.summary|default:"-" }}</td>
           <td>{{ issue.status|default:"-" }}</td>

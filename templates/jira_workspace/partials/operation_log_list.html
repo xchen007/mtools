@@ -1,0 +1,15 @@
+<div class="recent-list">
+  {% for log in operation_logs %}
+    <article class="recent-item">
+      <div class="recent-item__top">
+        <a class="issue-key" href="{% url 'jira_workspace:log_detail' log.id %}">{{ log.title }}</a>
+        <span class="issue-status">{{ log.status }}</span>
+      </div>
+      <div class="recent-item__summary">
+        {{ log.error_message|default:log.result_summary|default:log.action }}
+      </div>
+    </article>
+  {% empty %}
+    <p class="empty-state">No operation logs recorded yet.</p>
+  {% endfor %}
+</div>

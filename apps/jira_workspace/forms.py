@@ -1,8 +1,11 @@
 from django import forms
 
 from jira_workspace.models import (
+    GlobalSyncPolicy,
+    JiraConnection,
     JiraSavedQuery,
     JiraSyncProfile,
+    SyncScope,
     Sync2PodProfile,
     default_query_card_columns,
     default_query_card_summary_metrics,
@@ -12,6 +15,29 @@ from jira_workspace.services.query_card_types import (
     get_query_card_type_choices,
 )
 from jira_workspace.services.query_service import VALID_SORT_FIELDS, VALID_SORT_ORDERS
+
+
+QUERY_CARD_COLUMN_CHOICES = [
+    ("issue_key", "Key"),
+    ("project_key", "Project"),
+    ("summary", "Summary"),
+    ("status", "Status"),
+    ("assignee", "Assignee"),
+    ("reporter", "Reporter"),
+    ("priority", "Priority"),
+    ("updated_at", "Updated"),
+    ("sprint", "Sprint"),
+    ("created_at", "Created"),
+]
+
+
+def normalize_query_card_columns(column_keys):
+    valid_keys = {key for key, _label in QUERY_CARD_COLUMN_CHOICES}
+    normalized = []
+    for key in column_keys or []:
+        if key in valid_keys and key not in normalized:
+            normalized.append(key)
+    return normalized or default_query_card_columns()
 
 
 class JiraIssueFilterForm(forms.Form):
@@ -41,6 +67,84 @@ class JiraIssueFilterForm(forms.Form):
         self.fields["sort_order"].choices = [
             (value, value.upper()) for value in filter_options.get("sort_order_options", ())
         ]
+
+
+class GlobalSyncPolicyForm(forms.ModelForm):
+    class Meta:
+        model = GlobalSyncPolicy
+        fields = ["name"]
+
+
+class SyncScopeForm(forms.Form):
+    scope_type = forms.ChoiceField(
+        choices=[
+            choice
+            for choice in SyncScope.ScopeType.choices
+            if choice[0] != SyncScope.ScopeType.SELF_REQUIRED
+        ]
+    )
+    name = forms.CharField(max_length=120)
+    schedule_minutes = forms.IntegerField(min_value=5, initial=30)
+    is_required = forms.BooleanField(required=False)
+    username = forms.CharField(required=False, max_length=128)
+    project_key = forms.CharField(required=False, max_length=32)
+    label = forms.CharField(required=False, max_length=64)
+    sprint = forms.CharField(required=False, max_length=120)
+    custom_jql = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 3}))
+
+    def clean(self):
+        cleaned_data = super().clean()
+        scope_type = cleaned_data.get("scope_type")
+        username = (cleaned_data.get("username") or "").strip()
+        project_key = (cleaned_data.get("project_key") or "").strip().upper()
+        label = (cleaned_data.get("label") or "").strip()
+        sprint = (cleaned_data.get("sprint") or "").strip()
+        custom_jql = (cleaned_data.get("custom_jql") or "").strip()
+
+        if scope_type in {
+            SyncScope.ScopeType.ASSIGNEE_USER,
+            SyncScope.ScopeType.REPORTER_USER,
+        } and not username:
+            self.add_error("username", "Username is required for user scopes.")
+        if scope_type == SyncScope.ScopeType.PROJECT and not project_key:
+            self.add_error("project_key", "Project key is required for project scopes.")
+        if scope_type == SyncScope.ScopeType.LABEL and not label:
+            self.add_error("label", "Label is required for label scopes.")
+        if scope_type == SyncScope.ScopeType.SPRINT and not sprint:
+            self.add_error("sprint", "Sprint is required for sprint scopes.")
+        if scope_type == SyncScope.ScopeType.CUSTOM_JQL and not custom_jql:
+            self.add_error("custom_jql", "Custom JQL is required for custom JQL scopes.")
+
+        cleaned_data["username"] = username
+        cleaned_data["project_key"] = project_key
+        cleaned_data["label"] = label
+        cleaned_data["sprint"] = sprint
+        cleaned_data["custom_jql"] = custom_jql
+        return cleaned_data
+
+    def to_strategy_scope(self):
+        scope_type = self.cleaned_data["scope_type"]
+        scope_config = {
+            "scope_type": scope_type,
+            "name": self.cleaned_data["name"].strip(),
+            "schedule_minutes": self.cleaned_data["schedule_minutes"],
+            "is_required": bool(self.cleaned_data.get("is_required")),
+            "is_enabled": True,
+        }
+        if scope_type in {
+            SyncScope.ScopeType.ASSIGNEE_USER,
+            SyncScope.ScopeType.REPORTER_USER,
+        }:
+            scope_config["username"] = self.cleaned_data["username"]
+        elif scope_type == SyncScope.ScopeType.PROJECT:
+            scope_config["project_key"] = self.cleaned_data["project_key"]
+        elif scope_type == SyncScope.ScopeType.LABEL:
+            scope_config["label"] = self.cleaned_data["label"]
+        elif scope_type == SyncScope.ScopeType.SPRINT:
+            scope_config["sprint"] = self.cleaned_data["sprint"]
+        elif scope_type == SyncScope.ScopeType.CUSTOM_JQL:
+            scope_config["jql"] = self.cleaned_data["custom_jql"]
+        return scope_config
 
 
 class JiraSyncProfileForm(forms.ModelForm):
@@ -104,6 +208,48 @@ class JiraSyncProfileForm(forms.ModelForm):
             cleaned_data["jql"] = custom_jql
 
         return cleaned_data
+
+class JiraConnectionForm(forms.ModelForm):
+    api_token = forms.CharField(
+        required=False,
+        widget=forms.PasswordInput(render_value=False),
+    )
+
+    class Meta:
+        model = JiraConnection
+        fields = ["base_url", "auth_type", "user_email", "api_token"]
+
+    def clean_base_url(self):
+        return (self.cleaned_data.get("base_url") or "").strip().rstrip("/")
+
+    def clean(self):
+        cleaned_data = super().clean()
+        auth_type = cleaned_data.get("auth_type")
+        user_email = (cleaned_data.get("user_email") or "").strip()
+        api_token = (cleaned_data.get("api_token") or "").strip()
+
+        if auth_type == JiraConnection.AuthType.BASIC and not user_email:
+            self.add_error("user_email", "User email is required for basic auth.")
+        if not api_token and not getattr(self.instance, "api_token", ""):
+            self.add_error("api_token", "API token is required.")
+
+        cleaned_data["user_email"] = user_email
+        if api_token:
+            cleaned_data["api_token"] = api_token
+        return cleaned_data
+
+    def save(self, commit=True):
+        connection = super().save(commit=False)
+        submitted_token = (self.cleaned_data.get("api_token") or "").strip()
+        if submitted_token:
+            connection.api_token = submitted_token
+        elif self.instance and self.instance.pk:
+            connection.api_token = self.instance.api_token
+        connection.is_active = True
+        if commit:
+            JiraConnection.objects.active().exclude(pk=connection.pk).update(is_active=False)
+            connection.save()
+        return connection
 
 
 class JiraSavedQueryForm(forms.ModelForm):
@@ -185,10 +331,29 @@ class JiraSavedQueryForm(forms.ModelForm):
             getattr(self.instance, "summary_metrics_json", None)
             or default_query_card_summary_metrics()
         )
-        self.fields["default_column_values"].initial = ", ".join(
+        selected_columns = normalize_query_card_columns(
             getattr(self.instance, "default_columns_json", None)
             or default_query_card_columns()
         )
+        self.fields["default_column_values"].initial = ", ".join(selected_columns)
+        selected_column_set = set(selected_columns)
+        labels_by_key = dict(QUERY_CARD_COLUMN_CHOICES)
+        self.column_choices = [
+            {
+                "value": key,
+                "label": labels_by_key[key],
+                "checked": key in selected_column_set,
+            }
+            for key in selected_columns
+        ] + [
+            {
+                "value": key,
+                "label": label,
+                "checked": False,
+            }
+            for key, label in QUERY_CARD_COLUMN_CHOICES
+            if key not in selected_column_set
+        ]
         self.fields["sort_by"].choices = [
             (value, value.replace("_", " ").title()) for value in VALID_SORT_FIELDS
         ]
@@ -244,8 +409,9 @@ class JiraSavedQueryForm(forms.ModelForm):
             or default_query_card_summary_metrics()
         )
         cleaned_data["default_columns_json"] = (
-            _split_csv(cleaned_data.get("default_column_values"))
-            or default_query_card_columns()
+            normalize_query_card_columns(
+                _split_csv(cleaned_data.get("default_column_values"))
+            )
         )
         return cleaned_data
 

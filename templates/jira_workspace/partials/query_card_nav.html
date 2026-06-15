@@ -1,0 +1,15 @@
+<section class="query-card-nav" aria-label="Query Cards">
+  <div class="query-card-nav__head">
+    <h2>Query Cards</h2>
+    <button class="query-card-nav__new" type="button" data-query-card-editor-open>New Card</button>
+  </div>
+  <div class="query-card-nav__list">
+    {% for card in query_cards %}
+      <a class="query-card-nav__item{% if selected_card and selected_card.id == card.id %} is-active{% endif %}" href="{% url 'jira_workspace:query' %}?card={{ card.id }}">
+        <strong>{{ card.name }}</strong>
+      </a>
+    {% empty %}
+      <p class="empty-state">No query cards yet.</p>
+    {% endfor %}
+  </div>
+</section>
