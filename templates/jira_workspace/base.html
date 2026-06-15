@@ -21,11 +21,12 @@
     })();
   </script>
   <link rel="stylesheet" href="https://unpkg.com/tabulator-tables@6.4.0/dist/css/tabulator_midnight.min.css">
-  <link rel="stylesheet" href="{% static 'jira_workspace/jira.css' %}">
+  <link rel="stylesheet" href="{% static 'jira_workspace/jira.css' %}?v={{ shell_asset_version|default:'dev' }}">
 </head>
 <body class="workspace-body">
   <div class="app-shell">
     {% include "jira_workspace/partials/topbar.html" %}
+    {% include "jira_workspace/partials/tool_context_nav.html" %}
     {% include "jira_workspace/partials/app_nav.html" %}
     <main class="app-main">
       {% block content %}{% endblock %}
@@ -35,6 +36,6 @@
   {% include "jira_workspace/partials/settings_drawer.html" %}
   {% include "jira_workspace/partials/query_card_editor_drawer.html" %}
   <script src="https://unpkg.com/tabulator-tables@6.4.0/dist/js/tabulator.min.js"></script>
-  <script src="{% static 'jira_workspace/jira.js' %}"></script>
+  <script src="{% static 'jira_workspace/jira.js' %}?v={{ shell_asset_version|default:'dev' }}"></script>
 </body>
 </html>

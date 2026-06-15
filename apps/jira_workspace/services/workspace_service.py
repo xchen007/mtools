@@ -1,9 +1,12 @@
 from itertools import chain
 
+from django.conf import settings
 from django.urls import reverse
 
 from jira_workspace.models import (
     IntegrationScanRun,
+    JiraConnection,
+    OperationLog,
     JiraSyncRun,
     Sync2PodRun,
     Sync2PodWatchEvent,
@@ -18,6 +21,7 @@ class WorkspaceService:
         "jira": {"dashboard", "query", "queries", "issues", "sync", "profiles"},
         "sync2pod": {"sync2pod"},
         "integrations": {"integrations"},
+        "logs": {"logs", "log_detail"},
     }
 
     def build_shell_navigation(self, *, current_route_name):
@@ -59,6 +63,11 @@ class WorkspaceService:
                 "title": "Integration Scans",
                 "value": IntegrationScanRun.objects.count(),
                 "detail": self._latest_integration_detail(),
+            },
+            {
+                "title": "Operation Logs",
+                "value": OperationLog.objects.count(),
+                "detail": self._latest_log_detail(),
             },
         ]
 
@@ -169,10 +178,23 @@ class WorkspaceService:
             .order_by("-started_at")
             .first()
         )
+        jira_connection = self._jira_connection()
+        if jira_connection:
+            jira_status = (
+                "ok"
+                if jira_connection.last_check_status == JiraConnection.CheckStatus.OK
+                else "blocked"
+            )
+        else:
+            jira_status = (
+                "blocked"
+                if latest_jira_failure or not self._is_jira_configured()
+                else "ok"
+            )
         return [
             {
                 "label": "Jira",
-                "value": "blocked" if latest_jira_failure else "ok",
+                "value": jira_status,
             },
             {
                 "label": "sync2pod",
@@ -188,12 +210,30 @@ class WorkspaceService:
             },
         ]
 
-    @staticmethod
-    def _latest_jira_detail():
+    @classmethod
+    def _latest_jira_detail(cls):
+        connection = cls._jira_connection()
+        if connection:
+            if connection.last_check_message:
+                return connection.last_check_message
+            return "Jira connection has not been tested."
+        if not cls._is_jira_configured():
+            return "Jira API settings are not configured."
         run = JiraSyncRun.objects.order_by("-started_at").first()
         if not run:
             return "No Jira syncs yet."
         return f"Latest status: {run.status}"
+
+    @staticmethod
+    def _is_jira_configured():
+        return bool(
+            JiraConnection.objects.active().exists()
+            or (settings.JIRA_API_BASE_URL and settings.JIRA_API_TOKEN)
+        )
+
+    @staticmethod
+    def _jira_connection():
+        return JiraConnection.objects.active().order_by("-updated_at").first()
 
     @staticmethod
     def _latest_sync2pod_detail(*, sync2pod_capability=None):
@@ -223,6 +263,7 @@ class WorkspaceService:
             ("jira", "Jira", reverse("jira_workspace:query"), "Tool"),
             ("sync2pod", "sync2pod", "/sync2pod/", "Tool"),
             ("integrations", "Integrations", "/integrations/", "Tool"),
+            ("logs", "Logs", "/logs/", "Tool"),
         ]
         return [
             {
@@ -236,4 +277,28 @@ class WorkspaceService:
         ]
 
     def _build_current_sections(self, *, current_tool_key, current_route_name):
-        return []
+        if current_tool_key != "jira":
+            return []
+
+        items = [
+            ("dashboard", "Dashboard", reverse("jira_workspace:dashboard")),
+            ("query", "Query", reverse("jira_workspace:query")),
+            ("sync", "Sync", reverse("jira_workspace:sync")),
+            ("profiles", "Profiles", reverse("jira_workspace:profiles")),
+        ]
+        return [
+            {
+                "key": key,
+                "label": label,
+                "href": href,
+                "active": current_route_name == key,
+            }
+            for key, label, href in items
+        ]
+
+    @staticmethod
+    def _latest_log_detail():
+        log = OperationLog.objects.order_by("-started_at").first()
+        if not log:
+            return "No operation logs yet."
+        return log.error_message or log.result_summary or log.status
