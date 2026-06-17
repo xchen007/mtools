@@ -129,9 +129,3 @@ import sys
 
 #
 sys.path.insert(0, os.path.join(BASE_DIR, 'apps'))
-
-JIRA_API_BASE_URL = os.getenv("JIRA_API_BASE_URL", "").rstrip("/")
-JIRA_WEB_BASE_URL = os.getenv("JIRA_WEB_BASE_URL", "").rstrip("/")
-JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN", "")
-JIRA_AUTH_TYPE = os.getenv("JIRA_AUTH_TYPE", "bearer").lower()
-JIRA_USER_EMAIL = os.getenv("JIRA_USER_EMAIL", "")

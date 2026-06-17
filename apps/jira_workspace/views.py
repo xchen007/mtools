@@ -881,14 +881,7 @@ def _safe_next_url(request, next_url, *, fallback):
 
 
 def _jira_browse_base_url(connection=None):
-    configured_url = getattr(settings, "JIRA_WEB_BASE_URL", "").strip().rstrip("/")
-    if configured_url:
-        return configured_url
-
-    base_url = (
-        getattr(connection, "base_url", "")
-        or getattr(settings, "JIRA_API_BASE_URL", "")
-    ).strip().rstrip("/")
+    base_url = getattr(connection, "base_url", "").strip().rstrip("/")
     if not base_url:
         return ""
 

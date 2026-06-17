@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from unittest.mock import Mock
 
-from django.test import TestCase, override_settings
+from django.test import TestCase
 
 from jira_workspace.models import (
     GlobalSyncPolicy,
@@ -10,6 +10,7 @@ from jira_workspace.models import (
     JiraIssueSyncMembership,
     JiraIssueScopeMembership,
     JiraScopeSyncReport,
+    JiraConnection,
     OperationLog,
     JiraSyncProfile,
     JiraSyncRun,
@@ -1318,13 +1319,17 @@ class JiraWorkspaceSyncServiceTests(TestCase):
         assert status["has_external_blocker"] is True
         assert status["blocker_message"] == "External Jira access is currently blocked."
 
-    @override_settings(
-        JIRA_API_BASE_URL="https://jira.example.com",
-        JIRA_API_TOKEN="token",
-    )
-    def test_jira_client_uses_live_adapter_from_configured_settings(self):
+    def test_jira_client_uses_live_adapter_from_active_connection(self):
+        JiraConnection.objects.create(
+            base_url="https://jira.example.com",
+            api_token="token",
+            auth_type=JiraConnection.AuthType.BEARER,
+            is_active=True,
+        )
         service = SyncService()
 
         adapter = service._jira_client()
 
         assert adapter.__class__.__name__ == "JiraAdapter"
+        assert adapter.base_url == "https://jira.example.com/"
+        assert adapter.api_token == "token"

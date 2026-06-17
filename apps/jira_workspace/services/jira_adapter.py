@@ -4,7 +4,6 @@ from datetime import datetime
 from urllib.parse import urljoin
 
 import requests
-from django.conf import settings
 from django.utils import timezone
 
 
@@ -33,24 +32,27 @@ class JiraAdapter:
     ):
         if all(value is None for value in (base_url, api_token, auth_type, user_email)):
             connection_values = self._active_connection_values()
+            if not connection_values:
+                raise ValueError("No active Jira connection is configured.")
             base_url = connection_values.get("base_url")
             api_token = connection_values.get("api_token")
             auth_type = connection_values.get("auth_type")
             user_email = connection_values.get("user_email")
 
-        self.base_url = (base_url or settings.JIRA_API_BASE_URL or "").rstrip("/") + "/"
-        self.api_token = api_token if api_token is not None else settings.JIRA_API_TOKEN
-        self.auth_type = (auth_type or settings.JIRA_AUTH_TYPE or "bearer").lower()
-        self.user_email = user_email if user_email is not None else settings.JIRA_USER_EMAIL or None
+        normalized_base_url = (base_url or "").rstrip("/")
+        self.base_url = f"{normalized_base_url}/" if normalized_base_url else ""
+        self.api_token = api_token or ""
+        self.auth_type = (auth_type or "bearer").lower()
+        self.user_email = user_email or None
         self.session = session or requests.Session()
         self.timeout = timeout
 
         if not self.base_url or not self.api_token:
-            raise ValueError("JIRA_API_BASE_URL and JIRA_API_TOKEN are required.")
+            raise ValueError("Jira base URL and API token are required.")
         if self.auth_type == "basic" and not self.user_email:
-            raise ValueError("JIRA_USER_EMAIL is required when JIRA_AUTH_TYPE=basic.")
+            raise ValueError("Jira user email is required when auth type is basic.")
         if self.auth_type not in {"basic", "bearer"}:
-            raise ValueError(f"Unsupported JIRA_AUTH_TYPE '{self.auth_type}'.")
+            raise ValueError(f"Unsupported Jira auth type '{self.auth_type}'.")
 
     @classmethod
     def from_connection(cls, connection, **kwargs):

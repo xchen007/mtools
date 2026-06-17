@@ -1549,7 +1549,7 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
             started_at=datetime.now(timezone.utc),
             finished_at=datetime.now(timezone.utc),
             effective_jql=self.sync_scope.base_jql,
-            error_message="JIRA_API_BASE_URL and JIRA_API_TOKEN are required.",
+            error_message="No active Jira connection is configured.",
         )
 
         response = self.client.get(reverse("jira_workspace:sync"))
@@ -1557,7 +1557,7 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert response.status_code == 200
         content = response.content.decode()
         assert "<th scope=\"col\">Log</th>" in content
-        assert "JIRA_API_BASE_URL and JIRA_API_TOKEN are required." in content
+        assert "No active Jira connection is configured." in content
 
     def test_sync_page_can_save_jira_connection_settings(self):
         response = self.client.post(

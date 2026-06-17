@@ -92,38 +92,18 @@ The Query Card workbench displays locally cached `JiraIssue` rows. To determine 
 
 - the latest successful `JiraSyncRun` for the relevant `JiraSyncProfile`
 - the profile's `last_cursor`
-- whether the latest run used live Jira access or simulation data
 - whether the latest run failed with an external blocker such as Jira `403`
 
-Current local databases can contain seeded or simulated rows. A successful simulated sync proves UI and sync logic, but it does not prove that live Jira ticket status is current.
+Current local databases can contain old rows from previous development runs. A successful Jira sync is the source of truth for whether cached ticket status is current.
 
 ## Environment
 
-Jira sync uses these environment variables when live access is attempted:
+Jira live access is configured from the front-end management UI. Open `/jira/sync/`
+or the settings drawer, save the Jira connection, and then run a full or
+incremental sync to populate the local cache from the configured Jira server.
 
-```bash
-JIRA_API_BASE_URL
-JIRA_API_TOKEN
-JIRA_AUTH_TYPE
-JIRA_USER_EMAIL
-```
-
-For full local simulation without Jira network access, enable the fake adapter and seed the local cache:
-
-```bash
-export JIRA_SIMULATION_MODE=true
-export JIRA_SIMULATION_SCENARIO=default
-python manage.py seed_fake_jira
-python manage.py runserver 127.0.0.1:8001
-```
-
-Additional simulation settings:
-
-```bash
-JIRA_SIMULATION_FIXTURE_PATH
-```
-
-This loads fixture-backed Jira identity and issue data from `apps/jira_workspace/fixtures/jira_simulation.json`. The sync UI can then run incremental and full syncs without talking to a real Jira server.
+The application does not read Jira credentials from process environment
+variables.
 
 Known external limitation:
 

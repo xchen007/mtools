@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 import requests
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import SimpleTestCase, TestCase
 
 from jira_workspace.models import JiraConnection
 from jira_workspace.services.jira_adapter import JiraAdapter
@@ -399,12 +399,13 @@ class JiraAdapterTests(SimpleTestCase):
 
 
 class JiraAdapterDatabaseConfigTests(TestCase):
-    @override_settings(
-        JIRA_API_BASE_URL="",
-        JIRA_API_TOKEN="",
-        JIRA_AUTH_TYPE="bearer",
-        JIRA_USER_EMAIL="",
-    )
+    def test_adapter_requires_active_database_connection_when_explicit_values_are_absent(self):
+        with self.assertRaisesMessage(
+            ValueError,
+            "No active Jira connection is configured.",
+        ):
+            JiraAdapter(session=RecordingSession([]))
+
     def test_adapter_uses_active_database_connection_when_explicit_values_are_absent(self):
         JiraConnection.objects.create(
             base_url="https://jira-db.example.com",
