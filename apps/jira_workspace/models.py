@@ -410,6 +410,7 @@ class JiraScopeSyncReport(models.Model):
 class JiraSavedQuery(models.Model):
     class CardKind(models.TextChoices):
         JIRA_ISSUE_QUERY = "jira_issue_query", "Jira Issue Query"
+        SPRINT_REPORT = "sprint_report", "Sprint Report"
 
     class QuerySyntax(models.TextChoices):
         LOCAL_FILTER = "local_filter", "Local Filter"
@@ -450,6 +451,13 @@ class JiraSavedQuery(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def card_kind_label(self):
+        from jira_workspace.services.query_card_types import get_query_card_type
+
+        card_type = get_query_card_type(self.card_kind)
+        return card_type.label if card_type else self.card_kind
 
 
 class OperationLog(models.Model):

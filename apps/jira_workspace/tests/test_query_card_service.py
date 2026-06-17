@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 
 from django.test import TestCase
@@ -8,6 +9,7 @@ from jira_workspace.models import (
     GlobalSyncPolicy,
     GlobalSyncPolicyVersion,
     JiraIssue,
+    JiraIssueMetric,
     JiraIssueScopeMembership,
     JiraSavedQuery,
     JiraSyncProfile,
@@ -17,6 +19,7 @@ from jira_workspace.models import (
 from jira_workspace.services.query_card_service import QueryCardService
 from jira_workspace.services.query_card_types import (
     JIRA_ISSUE_QUERY_CARD_KIND,
+    SPRINT_REPORT_CARD_KIND,
     get_query_card_type,
     get_query_card_type_choices,
 )
@@ -133,6 +136,72 @@ class QueryCardServiceTests(TestCase):
             position=10,
         )
 
+    def test_sprint_report_card_type_computes_sprint_metrics(self):
+        service = QueryCardService(username="xchen17")
+        sprint_card = JiraSavedQuery.objects.create(
+            name="Sprint Report",
+            profile=self.profile,
+            card_kind=SPRINT_REPORT_CARD_KIND,
+            filters_json={"labels": ["SDS-CP-Sprint08-2026"]},
+            position=30,
+        )
+        blocked_issue = JiraIssue.objects.get(issue_key="OPS-1842")
+        blocked_issue.labels_json = ["SDS-CP-Sprint08-2026"]
+        blocked_issue.raw_json = json.dumps(
+            {"fields": {"timeoriginalestimate": 7200, "status": {"name": "Blocked"}}}
+        )
+        blocked_issue.save(update_fields=["labels_json", "raw_json"])
+        JiraIssueMetric.objects.create(issue=blocked_issue, worklog_minutes=30)
+
+        done_issue = JiraIssue.objects.get(issue_key="TESS-2291")
+        done_issue.labels_json = ["SDS-CP-Sprint08-2026"]
+        done_issue.status = "Done"
+        done_issue.raw_json = json.dumps(
+            {
+                "fields": {
+                    "timeoriginalestimate": 3600,
+                    "timespent": 5400,
+                    "status": {"name": "Done"},
+                    "resolutiondate": self.now.isoformat(),
+                    "worklog": {
+                        "worklogs": [
+                            {
+                                "author": {
+                                    "name": "xchen17",
+                                    "displayName": "xchen17",
+                                    "emailAddress": "xchen17@example.com",
+                                },
+                                "started": self.now.isoformat(),
+                                "timeSpentSeconds": 5400,
+                            }
+                        ]
+                    },
+                }
+            }
+        )
+        done_issue.save(update_fields=["labels_json", "status", "raw_json"])
+
+        rows = service.evaluate_card(sprint_card)
+        metrics = service.compute_card_metrics(sprint_card, rows)
+        report = service.build_sprint_report(rows, labels=["SDS-CP-Sprint08-2026"])
+
+        assert [row.issue_key for row in rows] == ["OPS-1842", "TESS-2291"]
+        assert metrics == [
+            {"key": "total", "label": "Total tickets", "value": 2},
+            {"key": "estimated_hours", "label": "Estimated", "value": "3h"},
+            {"key": "log_hours", "label": "Log time", "value": "2h"},
+            {"key": "done", "label": "Done tickets", "value": 1},
+            {"key": "remaining_hours", "label": "Remaining", "value": "1h"},
+            {"key": "completion_rate", "label": "Completion", "value": "50%"},
+        ]
+        assert report["rows"][0]["estimated_hours"] == "2h"
+        assert report["rows"][0]["log_hours"] == "0.5h"
+        assert report["rows"][1]["done_label"] == "this week"
+        assert report["completion_buckets"] == [{"label": "this week", "count": 1}]
+        assert report["daily_chart"]["series"][0]["label"] == "SDS-CP-Sprint08-2026"
+        assert report["daily_chart"]["series"][0]["line_path"].startswith("M ")
+        assert report["weekly_chart"]["bars"][0]["label"] == "SDS-CP-Sprint08-2026"
+
     def test_list_cards_orders_enabled_cards_by_position_then_name(self):
         JiraSavedQuery.objects.create(
             name="Disabled",
@@ -198,10 +267,14 @@ class QueryCardServiceTests(TestCase):
     def test_query_card_type_choices_are_registry_backed(self):
         form = JiraSavedQueryForm()
         card_type = get_query_card_type(JIRA_ISSUE_QUERY_CARD_KIND)
+        sprint_card_type = get_query_card_type(SPRINT_REPORT_CARD_KIND)
 
         assert card_type.value == JIRA_ISSUE_QUERY_CARD_KIND
         assert card_type.label == "Jira Issue Query"
         assert card_type.supports_issue_results is True
+        assert sprint_card_type.value == SPRINT_REPORT_CARD_KIND
+        assert sprint_card_type.label == "Sprint Report"
+        assert sprint_card_type.supports_issue_results is True
         assert list(form.fields["card_kind"].choices) == get_query_card_type_choices()
 
     def test_evaluate_card_rejects_unimplemented_card_kind(self):

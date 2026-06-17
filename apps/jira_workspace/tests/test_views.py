@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime, timedelta, timezone
 from html import unescape
@@ -14,6 +15,7 @@ from jira_workspace.models import (
     IntegrationTool,
     JiraConnection,
     JiraIssue,
+    JiraIssueMetric,
     JiraIssueScopeMembership,
     JiraScopeSyncReport,
     OperationLog,
@@ -406,6 +408,9 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert "No cached Jira issues are available yet." in content
         assert "External Jira access is currently blocked" in content
         assert "Jira returned 403: The request is blocked." in content
+        status_panel = content.split("<h2 class=\"section-title\">Jira Data Status</h2>", 1)[1].split("</section>", 1)[0]
+        assert "Open Jira Sync" in status_panel
+        assert f'href="{reverse("jira_workspace:sync")}"' in status_panel
 
     def test_query_page_treats_inactive_only_policy_cache_as_empty(self):
         JiraIssueScopeMembership.objects.update(is_active=False)
@@ -494,6 +499,61 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert saved_query.default_page_size == 50
         assert saved_query.query_syntax == JiraSavedQuery.QuerySyntax.LOCAL_FILTER
         assert saved_query.is_starred is True
+
+    def test_query_page_renders_sprint_report_card_metrics_and_table(self):
+        sprint_card = JiraSavedQuery.objects.create(
+            name="Sprint Report",
+            profile=self.profile,
+            card_kind=JiraSavedQuery.CardKind.SPRINT_REPORT,
+            filters_json={"labels": ["SDS-CP-Sprint08-2026"]},
+            position=30,
+        )
+        review_issue = JiraIssue.objects.get(issue_key="TESS-321")
+        review_issue.labels_json = ["SDS-CP-Sprint08-2026"]
+        review_issue.status = "Done"
+        review_issue.raw_json = json.dumps(
+            {
+                "fields": {
+                    "timeoriginalestimate": 7200,
+                    "status": {"name": "Done"},
+                    "resolutiondate": datetime.now(timezone.utc).isoformat(),
+                }
+            }
+        )
+        review_issue.save(update_fields=["labels_json", "status", "raw_json"])
+        JiraIssueMetric.objects.create(issue=review_issue, worklog_minutes=90)
+
+        response = self.client.get(reverse("jira_workspace:query"), {"card": sprint_card.id})
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'class="sprint-report-workbench"' in content
+        assert 'class="sprint-report-runbar"' in content
+        assert 'class="sprint-report-analytics"' in content
+        assert 'class="sprint-report-ticket-table"' in content
+        assert 'data-sprint-report-view-tab="tickets"' in content
+        assert 'data-query-results-panel="logs"' in content
+        assert "Sprint Report" in content
+        assert "ANALYTICS" in content
+        assert "THIS WEEK" in content
+        assert "DAILY WORKLOG" in content
+        assert "WEEKLY WORKLOG" in content
+        assert "Estimated" in content
+        assert "Log time" in content
+        assert "Done tickets" in content
+        assert "Completion" in content
+        assert "tickets" in content
+        assert "logged" in content
+        assert "<th scope=\"col\">Key</th>" in content
+        assert "<th scope=\"col\">Est.</th>" in content
+        assert "<th scope=\"col\">Log Time</th>" in content
+        assert "this week" in content
+        assert "TESS-321" in content
+        assert "OPS-778" not in content
+        assert "Current Policy Version" not in content
+        assert 'class="query-card-config-strip"' not in content
+        assert 'class="query-card-rule"' not in content
+        assert "Query Results" not in content
 
     def test_new_query_card_defaults_to_all_ticket_columns_when_column_order_is_omitted(self):
         response = self.client.post(
@@ -701,6 +761,7 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert 'data-column-key="created_at"' in content
         assert 'data-column-move="up"' in content
         assert 'data-column-move="down"' in content
+        assert '<option value="sprint_report">Sprint Report</option>' in content
 
     def test_new_query_card_can_save_people_project_label_sprint_type_and_priority_filters(self):
         response = self.client.post(
@@ -1137,14 +1198,14 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         content = response.content.decode()
         assert "Global Sync Policy" in content
         assert "Latest Status" in content
-        assert "Recent Scope Reports Summary" in content
+        assert "Recent Runs Summary" in content
         assert "Recent Logs Summary" in content
         assert "Details" in content
         assert "Scope Report History" in content
         assert "Policy Editor" in content
-        assert "Current Profile" not in content
-        assert "Profile Editor" not in content
-        assert "Sync Controls" not in content
+        assert "Current Profile" in content
+        assert "Profile Editor" in content
+        assert "Sync Controls" in content
         assert "Sync Run Timeline" not in content
         assert "Run Configuration Presets" not in content
 
@@ -1154,11 +1215,11 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert response.status_code == 200
         content = response.content.decode()
         assert 'class="panel sync-card sync-card--policy"' in content
-        assert 'class="panel sync-card sync-card--profile"' not in content
-        assert 'class="panel panel--tight sync-card sync-card--controls"' not in content
-        assert "Current Profile" not in content
-        assert "Sync Controls" not in content
-        assert 'name="action" value="run_sync"' not in content
+        assert 'class="panel sync-card sync-card--profile"' in content
+        assert 'class="panel sync-card sync-card--controls"' in content
+        assert "Current Profile" in content
+        assert "Sync Controls" in content
+        assert 'name="action" value="run_sync"' in content
         assert 'class="panel sync-card sync-card--status"' in content
         assert 'class="panel panel--tight sync-card sync-card--runs"' in content
         assert 'class="panel panel--tight sync-card sync-card--logs"' in content
@@ -1168,7 +1229,7 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert details_panel_tags
         for panel_tag in details_panel_tags:
             assert "sync-details__panel" in panel_tag
-        assert "selected_profile" not in response.context
+        assert response.context["selected_profile"] == self.profile
         assert 'name="action" value="run_scope_incremental"' in content
         assert 'name="action" value="run_scope_full"' in content
 
@@ -1349,9 +1410,9 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert 'name="action" value="add_scope"' in content
         assert 'name="scope_type"' in content
         assert "Add Scope" in content
-        assert 'data-sync-details-toggle="profile"' not in content
-        assert 'data-sync-details-panel="profile"' not in content
-        assert 'name="action" value="save_profile"' not in content
+        assert 'data-sync-details-toggle="profile"' in content
+        assert 'data-sync-details-panel="profile"' in content
+        assert 'name="action" value="save_profile"' in content
         policy_summary = content.split("Global Sync Policy", 1)[1].split("Latest Status", 1)[0]
         policy_details = content.split('data-sync-details-panel="policy"', 1)[1].split("</section>", 1)[0]
         policy_panel_open_tag = content.split('data-sync-details-panel="policy"', 1)[1].split(">", 1)[0]
@@ -1469,11 +1530,11 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         content = response.content.decode()
         assert 'data-sync-details-toggle' in content
         assert 'data-sync-details-panel="history"' in content
-        assert 'data-sync-details-panel="profile"' not in content
+        assert 'data-sync-details-panel="profile"' in content
         detail_panel_tags = re.findall(r"<section[^>]+data-sync-details-panel=\"([^\"]+)\"[^>]*>", content)
         detail_toggle_targets = re.findall(r'data-sync-details-toggle="([^"]+)"', content)
         assert detail_panel_tags
-        assert set(detail_panel_tags) == {"history", "scope-reports", "policy"}
+        assert set(detail_panel_tags) == {"history", "scope-reports", "policy", "profile"}
         assert set(detail_toggle_targets) == set(detail_panel_tags)
         assert len(detail_toggle_targets) == len(set(detail_toggle_targets))
         assert len(detail_panel_tags) == len(set(detail_panel_tags))
@@ -1506,7 +1567,7 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         content = response.content.decode()
         assert 'data-sync-summary-runs' in content
         assert 'data-sync-summary-run-item' in content
-        assert "Recent Scope Reports Summary" in content
+        assert "Recent Runs Summary" in content
         assert "My Assigned or Reported Issues" in content
         assert "45ms" in content
 
@@ -1527,7 +1588,7 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert response.status_code == 200
         content = response.content.decode()
         assert "Global Sync Policy" in content
-        assert "Recent Scope Reports Summary" in content
+        assert "Recent Runs Summary" in content
         assert "My Assigned or Reported Issues" in content
         assert "success" in content.lower()
         assert "The request is blocked." in content
@@ -1695,7 +1756,7 @@ class JiraWorkspaceSecondaryPagesTests(TestCase):
         assert response.status_code == 200
         content = response.content.decode()
         assert "Latest Status" in content
-        latest_status_block = content.split("Latest Status", 1)[1].split("Recent Scope Reports Summary", 1)[0]
+        latest_status_block = content.split("Latest Status", 1)[1].split("Recent Runs Summary", 1)[0]
         assert "fetched 40" in latest_status_block
         assert "unchanged 30" in latest_status_block
 
@@ -2637,8 +2698,8 @@ class JiraWorkspaceStylesheetTests(TestCase):
 
         assert ".sync-command-center" in css
         assert ".sync-card--policy" in css
-        assert ".sync-card--profile" not in css
-        assert ".sync-card--controls" not in css
+        assert ".sync-card--profile" in css
+        assert ".sync-card--controls" in css
         assert ".sync-card--status" in css
         assert ".sync-card--runs" in css
         assert ".sync-card--logs" in css
@@ -2649,7 +2710,7 @@ class JiraWorkspaceStylesheetTests(TestCase):
         assert "grid-template-columns: repeat(6, minmax(0, 1fr));" in css
         assert ".sync-command-center > .dashboard-grid" in css
         assert "display: contents;" in css
-        assert ".sync-card--status {\n    grid-column: span 2;" in css
+        assert ".sync-card--profile,\n  .sync-card--controls,\n  .sync-card--status" in css
         assert "grid-column: span 2;" in css
         assert ".sync-card--runs,\n  .sync-card--logs" in css
         assert "grid-column: span 3;" in css
@@ -2659,8 +2720,8 @@ class JiraWorkspaceStylesheetTests(TestCase):
         assert 'data-sync-details-toggle="history"' in html
         assert 'data-sync-details-toggle="scope-reports"' in html
         assert 'data-sync-details-toggle="policy"' in html
-        assert 'data-sync-details-toggle="profile"' not in html
-        assert 'data-sync-details-panel="profile"' not in html
+        assert 'data-sync-details-toggle="profile"' in html
+        assert 'data-sync-details-panel="profile"' in html
         assert 'aria-selected="false"' in html
         assert 'role="tablist"' in html
 

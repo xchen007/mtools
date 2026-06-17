@@ -5,7 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8001}"
 SESSION_NAME="${SESSION_NAME:-mtools-server-${PORT}}"
-PYTHON_BIN="${PYTHON_BIN:-./.venv/bin/python}"
+DEFAULT_PYTHON_BIN="./.venv/bin/python"
+PYTHON_BIN="${PYTHON_BIN:-$DEFAULT_PYTHON_BIN}"
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -24,10 +25,37 @@ if [[ ! -f manage.py ]]; then
   exit 1
 fi
 
-if [[ ! -x "$PYTHON_BIN" ]]; then
-  echo "python executable not found or not executable: $PYTHON_BIN" >&2
-  exit 1
-fi
+resolve_python_bin() {
+  local fallback_python
+  local venv_site_packages
+
+  if [[ -x "$PYTHON_BIN" ]]; then
+    return 0
+  fi
+
+  if [[ "$PYTHON_BIN" != "$DEFAULT_PYTHON_BIN" ]]; then
+    echo "python executable not found or not executable: $PYTHON_BIN" >&2
+    exit 1
+  fi
+
+  fallback_python="$(command -v python3.11 || true)"
+  venv_site_packages="$ROOT_DIR/.venv/lib/python3.11/site-packages"
+
+  if [[ -z "$fallback_python" || ! -x "$fallback_python" || ! -d "$venv_site_packages" ]]; then
+    echo "python executable not found or not executable: $PYTHON_BIN" >&2
+    exit 1
+  fi
+
+  PYTHON_BIN="$fallback_python"
+  if [[ -n "${PYTHONPATH:-}" ]]; then
+    PYTHONPATH="$ROOT_DIR/.venv/lib/python3.11/site-packages:$PYTHONPATH"
+  else
+    PYTHONPATH="$ROOT_DIR/.venv/lib/python3.11/site-packages"
+  fi
+  export PYTHONPATH
+}
+
+resolve_python_bin
 
 port_listener_pids() {
   lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true

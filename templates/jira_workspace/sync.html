@@ -45,6 +45,68 @@
     </section>
     {% endif %}
 
+    <section class="panel sync-card sync-card--profile">
+      <div class="panel__header">
+        <h2 class="section-title">Current Profile</h2>
+        {% if selected_profile %}
+          <span class="status-pill status-pill--{% if selected_profile.is_default %}success{% else %}neutral{% endif %}">
+            {% if selected_profile.is_default %}Default{% else %}Selected{% endif %}
+          </span>
+        {% else %}
+          <span class="status-pill status-pill--neutral">No Profile</span>
+        {% endif %}
+      </div>
+      {% if selected_profile %}
+        <dl class="sync-summary-meta">
+          <div>
+            <dt>Name</dt>
+            <dd>{{ selected_profile.name }}</dd>
+          </div>
+          <div>
+            <dt>Type</dt>
+            <dd>{{ selected_profile.get_profile_type_display|default:selected_profile.profile_type }}</dd>
+          </div>
+          <div>
+            <dt>Last Cursor</dt>
+            <dd class="meta-grid__code">{{ selected_profile.last_cursor|default:"-" }}</dd>
+          </div>
+          <div>
+            <dt>Updated</dt>
+            <dd>{{ selected_profile.updated_at|date:"Y-m-d H:i"|default:"-" }}</dd>
+          </div>
+        </dl>
+      {% else %}
+        <p class="empty-state">No Jira sync profile exists yet. Open Profile Editor in Details to create one.</p>
+      {% endif %}
+    </section>
+
+    <section class="panel sync-card sync-card--controls">
+      <div class="panel__header">
+        <h2 class="section-title">Sync Controls</h2>
+        {% if has_active_full_sync %}
+          <span class="status-pill status-pill--neutral">Full Sync Active</span>
+        {% endif %}
+      </div>
+      <form method="post" class="config-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="run_sync">
+        <div class="form-grid">
+          <label>
+            <span>Profile</span>
+            <select name="profile_id" required {% if not profiles %}disabled{% endif %}>
+              {% for profile in profiles %}
+                <option value="{{ profile.id }}"{% if selected_profile and selected_profile.id == profile.id %} selected{% endif %}>{{ profile.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <div class="toolbar toolbar--actions">
+          <button type="submit" name="run_type" value="incremental" {% if not profiles %}disabled{% endif %}>Run Incremental</button>
+          <button type="submit" name="run_type" value="full" {% if not profiles or has_active_full_sync %}disabled{% endif %}>Run Full</button>
+        </div>
+      </form>
+    </section>
+
     <div class="dashboard-grid dashboard-grid--main-first">
       <section class="panel sync-card sync-card--status">
         <div class="panel__header">
@@ -92,7 +154,7 @@
       <aside class="dashboard-sidebar">
         <section class="panel panel--tight sync-card sync-card--runs">
           <div class="panel__header">
-            <h2 class="section-title">Recent Scope Reports Summary</h2>
+            <h2 class="section-title">Recent Runs Summary</h2>
           </div>
           <div class="recent-list" data-sync-summary-runs>
             {% for report in scope_sync_reports|slice:":5" %}
@@ -124,10 +186,11 @@
       <div class="panel__header sync-details__header">
         <h2 class="section-title">Details</h2>
       </div>
-      <div class="toolbar toolbar--actions" role="tablist">
+      <div class="toolbar toolbar--actions" role="tablist" aria-label="Sync details view">
         <button type="button" role="tab" aria-selected="false" data-sync-details-toggle="history">Scope Report History</button>
         <button type="button" role="tab" aria-selected="false" data-sync-details-toggle="scope-reports">Scope Reports</button>
         <button type="button" role="tab" aria-selected="false" data-sync-details-toggle="policy">Policy Settings</button>
+        <button type="button" role="tab" aria-selected="false" data-sync-details-toggle="profile">Profile Editor</button>
       </div>
 
       <section class="panel panel--tight sync-details__panel" data-sync-details-panel="history" hidden>
@@ -138,6 +201,52 @@
           {% endif %}
         </div>
         {% include "jira_workspace/partials/sync_runs.html" with scope_sync_reports=scope_sync_reports %}
+      </section>
+
+      <section class="panel panel--tight sync-details__panel" data-sync-details-panel="profile" hidden>
+        <div class="panel__header">
+          <h3 class="section-title">Profile Editor</h3>
+        </div>
+        <form method="post" class="config-form" autocomplete="off">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="save_profile">
+          {% if selected_profile %}
+            <input type="hidden" name="profile_id" value="{{ selected_profile.id }}">
+          {% endif %}
+          <div class="form-grid">
+            <label>
+              <span>Name</span>
+              <input type="text" name="name" value="{{ profile_form.name.value|default:'' }}" required>
+            </label>
+            <label>
+              <span>Profile Type</span>
+              <select name="profile_type" required>
+                {% for value, label in profile_form.fields.profile_type.choices %}
+                  <option value="{{ value }}"{% if profile_form.profile_type.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              <span>Username</span>
+              <input type="text" name="username" value="{{ profile_form.username.value|default:'' }}" placeholder="xchen17">
+            </label>
+            <label>
+              <span>Project Key</span>
+              <input type="text" name="project_key" value="{{ profile_form.project_key.value|default:'' }}" placeholder="OPS">
+            </label>
+            <label class="form-grid__wide">
+              <span>Custom JQL</span>
+              <textarea name="custom_jql" rows="3" placeholder='project = "OPS" ORDER BY updated DESC'>{{ profile_form.custom_jql.value|default:'' }}</textarea>
+            </label>
+            <label class="checkbox-field">
+              <input type="checkbox" name="is_default" value="on" {% if profile_form.is_default.value %}checked{% endif %}>
+              <span>Default profile</span>
+            </label>
+          </div>
+          <div class="toolbar toolbar--actions">
+            <button type="submit">Save Profile</button>
+          </div>
+        </form>
       </section>
 
       <section class="panel panel--tight sync-details__panel" data-sync-details-panel="scope-reports" hidden>

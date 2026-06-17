@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 
 JIRA_ISSUE_QUERY_CARD_KIND = "jira_issue_query"
+SPRINT_REPORT_CARD_KIND = "sprint_report"
 
 
 @dataclass(frozen=True)
@@ -15,6 +16,11 @@ QUERY_CARD_TYPES = (
     QueryCardType(
         value=JIRA_ISSUE_QUERY_CARD_KIND,
         label="Jira Issue Query",
+        supports_issue_results=True,
+    ),
+    QueryCardType(
+        value=SPRINT_REPORT_CARD_KIND,
+        label="Sprint Report",
         supports_issue_results=True,
     ),
 )

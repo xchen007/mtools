@@ -3,10 +3,10 @@
 {% block title %}Jira Dashboard | mtools{% endblock %}
 
 {% block content %}
-<section class="query-workbench page-section">
+<section class="query-workbench page-section{% if is_sprint_report_card %} query-workbench--sprint-report{% endif %}">
   <section class="query-workbench__main">
     {% if selected_card %}
-      {% if not jira_has_cached_data %}
+      {% if not is_sprint_report_card and not jira_has_cached_data %}
         <section class="panel">
           <div class="panel__header">
             <h2 class="section-title">Jira Data Status</h2>
@@ -34,12 +34,15 @@
                   Open Jira Sync to fetch your assigned issues into the local cache.
                 {% endif %}
               </div>
+              <div class="query-empty-cache-actions">
+                <a class="workspace-control workspace-control--primary" href="{% url 'jira_workspace:sync' %}">Open Jira Sync</a>
+              </div>
             </article>
           </div>
         </section>
       {% endif %}
 
-      {% if sync_policy %}
+      {% if sync_policy and not is_sprint_report_card %}
         <section class="panel">
           <div class="panel__header">
             <h2 class="section-title">Current Policy Version</h2>
@@ -60,79 +63,325 @@
         </section>
       {% endif %}
 
-      {% include "jira_workspace/partials/query_card_header.html" with selected_card=selected_card %}
+      {% if is_sprint_report_card and sprint_report %}
+        <section class="sprint-report-workbench">
+          <header class="sprint-report-runbar">
+            <div class="sprint-report-runbar__title">
+              <span aria-hidden="true">📊</span>
+              <strong>{{ selected_card.name }}</strong>
+            </div>
+            <div class="sprint-report-runbar__field sprint-report-runbar__user">{{ shell_user }}</div>
+            <div class="sprint-report-runbar__labels" aria-label="Sprint labels">
+              {% for label in selected_card.filters_json.labels %}
+                <span class="sprint-report-label-chip">{{ label }}</span>
+              {% empty %}
+                <span class="sprint-report-label-chip sprint-report-label-chip--muted">{{ selected_card.query_preview|default:"Sprint label" }}</span>
+              {% endfor %}
+              <span class="sprint-report-label-add">+ label</span>
+            </div>
+            <div class="sprint-report-runbar__actions">
+              <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="run_card">
+                <input type="hidden" name="card_id" value="{{ selected_card.id }}">
+                <button class="workspace-control workspace-control--primary sprint-report-runbar__run" type="submit">▶ Run</button>
+              </form>
+              <button class="workspace-control sprint-report-runbar__interval" type="button">1m ▾</button>
+            </div>
+          </header>
 
-      <section class="query-card-config-strip" aria-label="Selected card configuration">
-        <article class="query-card-config">
-          <span>Card type</span>
-          <strong>{{ selected_card.get_card_kind_display }}</strong>
-        </article>
-        <article class="query-card-config">
-          <span>Query syntax</span>
-          <strong>{{ selected_card.get_query_syntax_display }}</strong>
-        </article>
-        <article class="query-card-config">
-          <span>Default view</span>
-          <strong>Table · compact · {{ selected_card.default_page_size }} rows</strong>
-        </article>
-        <article class="query-card-config">
-          <span>Persistence</span>
-          <strong>Per card layout settings</strong>
-        </article>
-      </section>
+          <section class="sprint-report-analytics" aria-label="Sprint report analytics">
+            <div class="sprint-report-section-title">📈 ANALYTICS</div>
+            <div class="sprint-report-week">
+              <span>THIS WEEK</span>
+              <div class="sprint-report-week__cards">
+                <article class="sprint-report-stat-card">
+                  <strong>{{ sprint_report.total_logged_hours|default:"-" }}</strong>
+                  <span>Total logged</span>
+                </article>
+                <article class="sprint-report-stat-card">
+                  <strong>{{ sprint_report.daily_average_hours|default:"-" }}</strong>
+                  <span>Daily avg</span>
+                </article>
+              </div>
+            </div>
+            {% if sprint_report.last_week_total_hours != "0h" %}
+              <div class="sprint-report-week sprint-report-week--dim">
+                <span>LAST WEEK</span>
+                <div class="sprint-report-week__cards">
+                  <article class="sprint-report-stat-card">
+                    <strong>{{ sprint_report.last_week_total_hours }}</strong>
+                    <span>Total logged</span>
+                  </article>
+                  <article class="sprint-report-stat-card">
+                    <strong>{{ sprint_report.last_week_average_hours }}</strong>
+                    <span>Daily avg</span>
+                  </article>
+                </div>
+              </div>
+            {% endif %}
+            <div class="sprint-report-metrics-strip" aria-label="Sprint report summary">
+              {% for metric in query_card_metrics %}
+                <article>
+                  <strong>{{ metric.value }}</strong>
+                  <span>{{ metric.label }}</span>
+                </article>
+              {% endfor %}
+            </div>
+            <div class="sprint-report-charts">
+              <article class="sprint-report-chart">
+                <div class="sprint-report-chart__title">📈 DAILY WORKLOG</div>
+                <div class="sprint-report-chart-frame">
+                  <svg class="sprint-report-chart-svg" viewBox="0 0 {{ sprint_report.daily_chart.width }} {{ sprint_report.daily_chart.height }}" role="img" aria-label="Daily worklog chart">
+                    {% for mark in sprint_report.daily_chart.grid %}
+                      <line x1="28" y1="{{ mark.y }}" x2="392" y2="{{ mark.y }}" class="sprint-report-chart-grid"></line>
+                      <text x="21" y="{{ mark.label_y }}" class="sprint-report-chart-axis" text-anchor="end">{{ mark.hours }}h</text>
+                    {% endfor %}
+                    <line x1="28" y1="{{ sprint_report.daily_chart.target_y }}" x2="392" y2="{{ sprint_report.daily_chart.target_y }}" class="sprint-report-chart-target"></line>
+                    {% for series in sprint_report.daily_chart.series %}
+                      {% if series.area_path %}
+                        <path d="{{ series.area_path }}" fill="{{ series.color }}" fill-opacity="0.08"></path>
+                      {% endif %}
+                      {% if series.line_path %}
+                        <path d="{{ series.line_path }}" fill="none" stroke="{{ series.color }}" stroke-width="1.5" stroke-linejoin="round"></path>
+                      {% endif %}
+                      {% for point in series.points %}
+                        <circle cx="{{ point.x }}" cy="{{ point.y }}" r="2.5" fill="{{ series.color }}" stroke="{{ series.color }}" stroke-width="1"></circle>
+                      {% endfor %}
+                    {% endfor %}
+                    {% if sprint_report.daily_chart.total_path %}
+                      <path d="{{ sprint_report.daily_chart.total_path }}" fill="none" class="sprint-report-chart-total" stroke-linejoin="round"></path>
+                      {% for point in sprint_report.daily_chart.total_points %}
+                        <circle cx="{{ point.x }}" cy="{{ point.y }}" r="2.5" class="sprint-report-chart-total-point"></circle>
+                      {% endfor %}
+                    {% endif %}
+                    {% for tick in sprint_report.daily_chart.x_labels %}
+                      <text x="{{ tick.x }}" y="196" class="sprint-report-chart-axis" text-anchor="end" transform="rotate(-45, {{ tick.x }}, 196)">{{ tick.label }}</text>
+                    {% endfor %}
+                  </svg>
+                </div>
+                <div class="sprint-report-chart__legend">
+                  {% for series in sprint_report.daily_chart.series %}
+                    <span style="--legend-color: {{ series.color }};">{{ series.short_label }}</span>
+                  {% empty %}
+                    <span>{{ selected_card.name }}</span>
+                  {% endfor %}
+                  <span class="sprint-report-chart__target-legend">8h target</span>
+                </div>
+              </article>
+              <article class="sprint-report-chart">
+                <div class="sprint-report-chart__title">📊 WEEKLY WORKLOG</div>
+                <div class="sprint-report-chart-frame">
+                  <svg class="sprint-report-chart-svg" viewBox="0 0 {{ sprint_report.weekly_chart.width }} {{ sprint_report.weekly_chart.height }}" role="img" aria-label="Weekly worklog chart">
+                    {% for mark in sprint_report.weekly_chart.grid %}
+                      <line x1="28" y1="{{ mark.y }}" x2="332" y2="{{ mark.y }}" class="sprint-report-chart-grid"></line>
+                      <text x="21" y="{{ mark.label_y }}" class="sprint-report-chart-axis" text-anchor="end">{{ mark.hours }}h</text>
+                    {% endfor %}
+                    {% for bar in sprint_report.weekly_chart.bars %}
+                      <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.width }}" height="{{ bar.height }}" fill="{{ bar.color }}" fill-opacity="0.75" rx="2"></rect>
+                    {% endfor %}
+                    {% for tick in sprint_report.weekly_chart.x_labels %}
+                      <text x="{{ tick.x }}" y="194" class="sprint-report-chart-axis" text-anchor="middle">{{ tick.label }}</text>
+                    {% endfor %}
+                  </svg>
+                </div>
+                <div class="sprint-report-chart__legend">
+                  {% for label in sprint_report.weekly_chart.labels %}
+                    <span style="--legend-color: {{ label.color }};">{{ label.short_label }}</span>
+                  {% empty %}
+                    <span>{{ selected_card.name }}</span>
+                  {% endfor %}
+                </div>
+              </article>
+            </div>
+          </section>
 
-      <section class="query-card-rule" aria-label="Selected query rule">
-        <div class="query-card-rule__meta">
-          <span>Query rule</span>
-          <strong>{{ selected_card.get_query_syntax_display }}</strong>
-        </div>
-        <code>{{ selected_card.query_preview|default:selected_card.description|default:"No query rule configured" }}</code>
-      </section>
-
-      <section class="panel dashboard-main query-workbench__results">
-        <div class="panel__header">
-          <div class="query-results-heading">
-            <h2 class="section-title">Query Results</h2>
-            <div class="query-results-switcher" role="tablist" aria-label="Query results view">
+          <section class="sprint-report-results">
+            <div class="sprint-report-tabs" role="tablist" aria-label="Sprint report views">
               <button
                 type="button"
-                class="query-results-switcher__tab is-active"
+                class="sprint-report-tab is-active"
+                data-sprint-report-view-tab="tickets"
                 data-query-results-view-tab="results"
                 data-query-results-target="results"
                 aria-selected="true"
               >
-                Results
+                📊 Tickets
               </button>
               <button
                 type="button"
-                class="query-results-switcher__tab"
+                class="sprint-report-tab"
+                data-sprint-report-view-tab="logs"
                 data-query-results-view-tab="logs"
                 data-query-results-target="logs"
                 aria-selected="false"
               >
-                Logs
+                📋 Logs ({{ recent_operation_logs|length }})
               </button>
+              <span class="sprint-report-tabs__ago">just now</span>
+            </div>
+            <div
+              class="query-results-panel sprint-report-results__panel"
+              data-query-results-panel="results"
+              data-view-active="true"
+            >
+              <div class="sprint-report-table-summary">
+                <span><strong>{{ sprint_report.rows|length }}</strong> tickets</span>
+                {% for bucket in sprint_report.status_counts %}
+                  <span>·</span>
+                  <span><span class="sprint-report-status-dot"></span><strong>{{ bucket.count }}</strong> {{ bucket.label }}</span>
+                {% endfor %}
+                <span>·</span>
+                <span><strong>{{ sprint_report.total_logged_hours|default:"0h" }}</strong> logged</span>
+                <span>just now</span>
+                <span class="sprint-report-table-summary__meta">
+                  {% for label in sprint_report.labels %}{{ label }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                  · {{ shell_user }}
+                </span>
+              </div>
+              <div class="sprint-report-table-wrap">
+                <table class="sprint-report-ticket-table">
+                  <thead>
+                    <tr>
+                      <th scope="col"></th>
+                      <th scope="col">Key</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Summary</th>
+                      <th scope="col">Priority</th>
+                      <th scope="col">Pts</th>
+                      <th scope="col">Est.</th>
+                      <th scope="col">Log Time</th>
+                      <th scope="col">Assignee</th>
+                      <th scope="col">Done</th>
+                      <th scope="col">Type</th>
+                      <th scope="col">Project</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in sprint_report.rows %}
+                      <tr>
+                        <td class="sprint-report-ticket-table__expander">▶</td>
+                        <td class="cell-key">
+                          {% if jira_browse_base_url %}
+                            <a class="ticket-key-link" href="{{ jira_browse_base_url }}/browse/{{ row.issue.issue_key|urlencode }}" target="_blank" rel="noreferrer">{{ row.issue.issue_key }}</a>
+                          {% else %}
+                            {{ row.issue.issue_key }}
+                          {% endif %}
+                        </td>
+                        <td><span class="sprint-report-status-pill">{{ row.issue.status|default:"-" }}</span></td>
+                        <td class="sprint-report-ticket-table__summary">{{ row.issue.summary|default:"-" }}</td>
+                        <td>{{ row.issue.priority|default:"-" }}</td>
+                        <td>-</td>
+                        <td>{{ row.estimated_hours }}</td>
+                        <td>{{ row.log_hours }}</td>
+                        <td>{{ row.issue.assignee|default:"-" }}</td>
+                        <td>{{ row.done_label|default:"-" }}</td>
+                        <td>{{ row.issue.issue_type|default:"-" }}</td>
+                        <td><span class="sprint-report-project-pill">{{ row.issue.project_key|default:"-" }}</span></td>
+                      </tr>
+                    {% empty %}
+                      <tr>
+                        <td class="empty-state empty-state--cell" colspan="12">No tickets matched this sprint report card.</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              <div class="sprint-report-table-footer">
+                <span>Type <strong>All</strong> ▾</span>
+                <span>Status <strong>All</strong> ▾</span>
+                <span>Priority <strong>All</strong> ▾</span>
+                <span>Assignee <strong>All</strong> ▾</span>
+                <span class="sprint-report-table-footer__sort">Shift + Click multi-sort</span>
+                <span class="sprint-report-table-footer__spacer"></span>
+                <button class="workspace-control" type="button">▥ Columns</button>
+                <span>{{ sprint_report.rows|length }} rows</span>
+              </div>
+            </div>
+            <div
+              class="query-results-panel query-results-panel--logs sprint-report-results__logs"
+              data-query-results-panel="logs"
+              hidden
+            >
+              {% include "jira_workspace/partials/operation_log_list.html" with operation_logs=recent_operation_logs %}
+            </div>
+          </section>
+        </section>
+      {% else %}
+        {% include "jira_workspace/partials/query_card_header.html" with selected_card=selected_card %}
+
+        <section class="query-card-config-strip" aria-label="Selected card configuration">
+          <article class="query-card-config">
+            <span>Card type</span>
+            <strong>{{ selected_card.card_kind_label }}</strong>
+          </article>
+          <article class="query-card-config">
+            <span>Query syntax</span>
+            <strong>{{ selected_card.get_query_syntax_display }}</strong>
+          </article>
+          <article class="query-card-config">
+            <span>Default view</span>
+            <strong>Table · compact · {{ selected_card.default_page_size }} rows</strong>
+          </article>
+          <article class="query-card-config">
+            <span>Persistence</span>
+            <strong>Per card layout settings</strong>
+          </article>
+        </section>
+
+        <section class="query-card-rule" aria-label="Selected query rule">
+          <div class="query-card-rule__meta">
+            <span>Query rule</span>
+            <strong>{{ selected_card.get_query_syntax_display }}</strong>
+          </div>
+          <code>{{ selected_card.query_preview|default:selected_card.description|default:"No query rule configured" }}</code>
+        </section>
+
+        <section class="panel dashboard-main query-workbench__results">
+          <div class="panel__header">
+            <div class="query-results-heading">
+              <h2 class="section-title">Query Results</h2>
+              <div class="query-results-switcher" role="tablist" aria-label="Query results view">
+                <button
+                  type="button"
+                  class="query-results-switcher__tab is-active"
+                  data-query-results-view-tab="results"
+                  data-query-results-target="results"
+                  aria-selected="true"
+                >
+                  Results
+                </button>
+                <button
+                  type="button"
+                  class="query-results-switcher__tab"
+                  data-query-results-view-tab="logs"
+                  data-query-results-target="logs"
+                  aria-selected="false"
+                >
+                  Logs
+                </button>
+              </div>
+            </div>
+            <div class="query-results-summary" data-query-results-summary>
+              {% include "jira_workspace/partials/query_card_summary.html" with metrics=query_card_metrics %}
             </div>
           </div>
-          <div class="query-results-summary" data-query-results-summary>
-            {% include "jira_workspace/partials/query_card_summary.html" with metrics=query_card_metrics %}
+          <div
+            class="query-results-panel"
+            data-query-results-panel="results"
+            data-view-active="true"
+          >
+            {% include "jira_workspace/partials/ticket_table.html" with ticket_rows=query_rows rich_table_id="jira-query-results" rich_table_persist_scope=query_card_persistence_scope rich_table_row_click="drawer" rich_table_page_size=selected_card.default_page_size rich_table_fill_height=True rich_table_default_columns=selected_card.default_columns_json|join:"," %}
           </div>
-        </div>
-        <div
-          class="query-results-panel"
-          data-query-results-panel="results"
-          data-view-active="true"
-        >
-          {% include "jira_workspace/partials/ticket_table.html" with ticket_rows=query_rows rich_table_id="jira-query-results" rich_table_persist_scope=query_card_persistence_scope rich_table_row_click="drawer" rich_table_page_size=selected_card.default_page_size rich_table_fill_height=True rich_table_default_columns=selected_card.default_columns_json|join:"," %}
-        </div>
-        <div
-          class="query-results-panel query-results-panel--logs"
-          data-query-results-panel="logs"
-          hidden
-        >
-          {% include "jira_workspace/partials/operation_log_list.html" with operation_logs=recent_operation_logs %}
-        </div>
-      </section>
+          <div
+            class="query-results-panel query-results-panel--logs"
+            data-query-results-panel="logs"
+            hidden
+          >
+            {% include "jira_workspace/partials/operation_log_list.html" with operation_logs=recent_operation_logs %}
+          </div>
+        </section>
+      {% endif %}
     {% else %}
       <section class="panel query-workbench__empty">
         <div class="panel__header">

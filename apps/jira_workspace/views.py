@@ -16,6 +16,7 @@ from jira_workspace.forms import (
     JiraConnectionForm,
     JiraIssueFilterForm,
     JiraSavedQueryForm,
+    JiraSyncProfileForm,
     SyncScopeForm,
     Sync2PodProfileForm,
 )
@@ -51,6 +52,7 @@ from jira_workspace.services.stats_service import (
 )
 from jira_workspace.services.star_service import StarService
 from jira_workspace.services.sync_service import (
+    ActiveFullSyncError,
     PRIMARY_GLOBAL_SYNC_POLICY_NAME,
     SyncService,
 )
@@ -383,7 +385,14 @@ def sync(request):
     connection_service = JiraConnectionService()
     operation_log_service = OperationLogService()
     jira_connection = connection_service.get_active_connection()
+    selected_profile = _resolve_selected_profile(request.GET.get("profile"))
+    profile_form = (
+        JiraSyncProfileForm(instance=selected_profile)
+        if selected_profile
+        else JiraSyncProfileForm()
+    )
     connection_form = JiraConnectionForm(instance=jira_connection)
+    sync_fallback_url = _sync_url_for_profile(selected_profile)
 
     if request.method == "POST":
         action = request.POST.get("action")
@@ -395,7 +404,7 @@ def sync(request):
                     _safe_next_url(
                         request,
                         request.POST.get("next"),
-                        fallback=reverse("jira_workspace:sync"),
+                        fallback=sync_fallback_url,
                     )
                 )
         elif action == "test_connection":
@@ -409,9 +418,38 @@ def sync(request):
                 _safe_next_url(
                     request,
                     request.POST.get("next"),
-                    fallback=reverse("jira_workspace:sync"),
+                    fallback=sync_fallback_url,
                 )
             )
+        elif action == "save_profile":
+            profile_instance = _resolve_selected_profile(request.POST.get("profile_id"))
+            profile_form = JiraSyncProfileForm(request.POST, instance=profile_instance)
+            if profile_form.is_valid():
+                profile = profile_form.save(commit=False)
+                if profile.is_default:
+                    JiraSyncProfile.objects.filter(is_default=True).exclude(
+                        pk=profile.pk
+                    ).update(is_default=False)
+                profile.save()
+                return redirect(f"{reverse('jira_workspace:sync')}?profile={profile.id}")
+        elif action == "run_sync":
+            profile = get_object_or_404(
+                JiraSyncProfile,
+                pk=request.POST.get("profile_id"),
+            )
+            run_type = request.POST.get("run_type")
+            try:
+                if run_type not in {
+                    JiraSyncRun.RunType.FULL,
+                    JiraSyncRun.RunType.INCREMENTAL,
+                }:
+                    run_type = JiraSyncRun.RunType.INCREMENTAL
+                sync_service.enqueue_sync(profile, run_type)
+            except ActiveFullSyncError as exc:
+                messages.error(request, str(exc))
+            except Exception:
+                messages.error(request, "Unable to start the Jira sync task right now.")
+            return redirect(f"{reverse('jira_workspace:sync')}?profile={profile.id}")
         elif action == "rebuild_policy":
             policy = get_object_or_404(
                 GlobalSyncPolicy,
@@ -480,6 +518,27 @@ def sync(request):
                 except Exception:
                     messages.error(request, "Unable to add sync scope.")
 
+    profiles_qs = JiraSyncProfile.objects.order_by("-is_default", "name")
+    if selected_profile is None:
+        selected_profile = profiles_qs.first()
+        if not profile_form.is_bound:
+            profile_form = (
+                JiraSyncProfileForm(instance=selected_profile)
+                if selected_profile
+                else JiraSyncProfileForm()
+            )
+
+    profiles = list(profiles_qs)
+    for profile in profiles:
+        profile.star = _star_button_context(
+            kind=WorkspaceStar.Kind.JIRA_SYNC_PROFILE,
+            label=profile.name,
+            route=f"{reverse('jira_workspace:sync')}?profile={profile.id}",
+            group_key="jira",
+            object_id=str(profile.id),
+            next_url=request.get_full_path(),
+        )
+
     sync_status = sync_service.build_sync_status()
     global_policy = sync_service.ensure_global_policy()
     policy_scopes = []
@@ -504,22 +563,46 @@ def sync(request):
         SyncScope.RunStatus.QUEUED_FULL,
         SyncScope.RunStatus.RUNNING_FULL,
     }
-    has_active_sync = any(
+    has_active_scope_sync = any(
         scope.last_run_status in active_scope_statuses for scope in policy_scopes
     )
-    has_active_full_sync = any(
+    has_active_full_scope_sync = any(
         scope.last_run_status in active_full_scope_statuses for scope in policy_scopes
     )
+    has_active_profile_sync = any(
+        run.status in {JiraSyncRun.Status.QUEUED, JiraSyncRun.Status.RUNNING}
+        for run in sync_status["recent_runs"]
+    )
+    has_active_full_profile_sync = any(
+        run.run_type == JiraSyncRun.RunType.FULL
+        and run.status in {JiraSyncRun.Status.QUEUED, JiraSyncRun.Status.RUNNING}
+        for run in sync_status["recent_runs"]
+    )
     context = {
-        "has_active_sync": has_active_sync,
-        "has_active_full_sync": has_active_full_sync,
+        "profiles": profiles,
+        "sync_runs": sync_status["recent_runs"],
+        "has_active_sync": has_active_scope_sync or has_active_profile_sync,
+        "has_active_full_sync": has_active_full_scope_sync or has_active_full_profile_sync,
         "latest_failed_run": sync_status["latest_failure"],
         "jira_blocker_message": sync_status["blocker_message"],
         "has_external_blocker": sync_status["has_external_blocker"],
+        "profile_form": profile_form,
         "connection_form": connection_form,
         "jira_connection": jira_connection,
-        "recent_operation_logs": operation_log_service.recent_logs(
-            tool=OperationLog.Tool.JIRA_SYNC,
+        "selected_profile": selected_profile,
+        "starred_profile_ids": set(
+            WorkspaceStar.objects.filter(
+                kind=WorkspaceStar.Kind.JIRA_SYNC_PROFILE
+            ).values_list("object_id", flat=True)
+        ),
+        "recent_operation_logs": (
+            operation_log_service.recent_logs(
+                tool=OperationLog.Tool.JIRA_SYNC,
+                target_type="jira_sync_profile",
+                target_id=str(selected_profile.id),
+            )
+            if selected_profile
+            else operation_log_service.recent_logs(tool=OperationLog.Tool.JIRA_SYNC)
         ),
         "global_policy": global_policy,
         "policy_scopes": policy_scopes,
@@ -903,6 +986,21 @@ def _resolve_selected_query(query_id, queryset):
         return queryset.get(pk=query_id)
     except (JiraSavedQuery.DoesNotExist, ValueError, TypeError):
         return queryset.first()
+
+
+def _resolve_selected_profile(profile_id):
+    if not profile_id:
+        return None
+    try:
+        return JiraSyncProfile.objects.get(pk=profile_id)
+    except (JiraSyncProfile.DoesNotExist, ValueError, TypeError):
+        return None
+
+
+def _sync_url_for_profile(profile):
+    if not profile:
+        return reverse("jira_workspace:sync")
+    return f"{reverse('jira_workspace:sync')}?profile={profile.id}"
 
 
 def _resolve_selected_sync2pod_profile(profile_id):
